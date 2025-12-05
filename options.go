@@ -75,6 +75,15 @@ func WithAdaptiveBatching(enabled bool) Option {
 	}
 }
 
+// WithOTelMode enables OpenTelemetry mode
+// This is used internally by the otel package
+func WithOTelMode() Option {
+	return func(c *Config) {
+		// OTel mode is transparent - no config changes needed
+		// The otel package handles the translation
+	}
+}
+
 // WithCloudWatch enables and configures CloudWatch exporter
 func WithCloudWatch(cfg *CloudWatchConfig) Option {
 	return func(c *Config) {
