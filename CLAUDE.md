@@ -4,12 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-An OpenTelemetry-based, non-blocking UDP stats library for the Convoy Road Trips App. Designed for high-throughput metric collection with support for multiple backends (CloudWatch, Prometheus, Datadog).
+A production-ready, non-blocking UDP stats library for the Convoy Road Trips App. Designed for high-throughput metric collection with multi-backend support (CloudWatch, Prometheus, Datadog), robust error handling, and adaptive backpressure management.
 
 **Module Path:** `github.com/convoy-road-trips-app/stats`
 **Go Version:** 1.25.5
 
 ## Architecture
+
+For detailed architecture documentation, see [docs/architecture.md](docs/architecture.md).
 
 ### Core Components
 
@@ -32,7 +34,9 @@ An OpenTelemetry-based, non-blocking UDP stats library for the Convoy Road Trips
 
 4. **Metric Pipeline** (`pipeline.go`)
    - Worker pool pattern for async processing
-   - Adaptive batching (up to 100 metrics, 100ms max age)
+   - **Parallel Exporting**: Exporters run concurrently (bulkheading)
+   - **Panic Recovery**: Worker goroutines protected from exporter panics
+   - **Adaptive Batching**: Dynamically adjusts batch size based on buffer pressure
    - Memory-aware buffering
    - Graceful shutdown with context cancellation
 
@@ -47,11 +51,11 @@ An OpenTelemetry-based, non-blocking UDP stats library for the Convoy Road Trips
 ```
 Application → Client.Counter/Gauge/Histogram
     ↓
-Ring Buffer (non-blocking push)
+Ring Buffer (non-blocking push, drop strategies)
     ↓
-Worker Pool (4 workers, batching)
+Worker Pool (4 workers, adaptive batching)
     ↓
-Exporters (per backend)
+Exporters (parallel, isolated)
     ↓
 UDP Connection Pool
     ↓
@@ -60,12 +64,36 @@ Backend Agents (CloudWatch/Prometheus/Datadog)
 
 ## Development Commands
 
-### Building
+### Using Makefile (Recommended)
+
 ```bash
-go build ./...
+# Run all tests
+make test
+
+# Run tests with race detector
+make test-race
+
+# Run tests with coverage report
+make test-cover
+
+# Run benchmarks
+make bench
+
+# Run linters
+make lint
+
+# Build the library
+make build
+
+# Clean artifacts
+make clean
+
+# Show all available targets
+make help
 ```
 
-### Running Tests
+### Manual Commands
+
 ```bash
 # Run all tests
 go test ./...
@@ -87,6 +115,9 @@ go test ./transport/...
 ```bash
 # Basic example
 cd examples/basic && go run main.go
+
+# Multi-backend example
+cd examples/multibackend && go run main.go
 ```
 
 ### Code Quality
@@ -101,18 +132,6 @@ go vet ./...
 golangci-lint run
 ```
 
-### Dependencies
-```bash
-# Add a new dependency
-go get package-name
-
-# Tidy up dependencies
-go mod tidy
-
-# Verify dependencies
-go mod verify
-```
-
 ## Performance Targets
 
 | Metric | Target | Excellent |
@@ -125,12 +144,44 @@ go mod verify
 
 ## Key Design Decisions
 
-1. **Non-Blocking Guarantee**: Ring buffer with drop-on-full policy ensures application never blocks
+1. **Non-Blocking Guarantee**: Ring buffer with configurable drop strategies ensures application never blocks
 2. **Lock-Free Design**: Atomic operations and CAS for zero contention
 3. **Object Pooling**: `sync.Pool` for metrics and buffers to minimize GC pressure
 4. **Multiple Backends**: Independent exporters with isolated failure domains
 5. **Memory Bounds**: Configurable limits prevent unbounded growth
 6. **Graceful Degradation**: Drops metrics under pressure rather than failing
+7. **Parallel Exporting**: Slow backends don't block fast ones
+8. **Adaptive Backpressure**: Automatically adjusts processing rate based on buffer utilization
+
+## Robustness Features
+
+### Drop Strategies
+Configure how the system handles buffer overflow:
+- `DropNewest` (default): Rejects incoming metrics when buffer is full
+- `DropOldest`: Removes oldest metric to make room for new ones
+
+```go
+client, err := stats.NewClient(
+    stats.WithDropStrategy(stats.DropOldest),
+)
+```
+
+### Adaptive Batching
+Automatically increases batch size when buffer utilization exceeds 50%:
+```go
+client, err := stats.NewClient(
+    stats.WithAdaptiveBatching(true),
+)
+```
+
+### Error Tracking
+Per-exporter error tracking for visibility:
+```go
+stats := client.Stats()
+for name, count := range stats.Pipeline.ExporterErrors {
+    fmt.Printf("Exporter %s: %d errors\n", name, count)
+}
+```
 
 ## File Structure
 
@@ -142,12 +193,27 @@ go mod verify
 ├── config.go              # Configuration structures
 ├── options.go             # Functional options
 ├── errors.go              # Error definitions
+├── Makefile              # Build and test automation
 ├── transport/
 │   ├── buffer.go          # Lock-free ring buffer
 │   ├── udp.go            # UDP connection pool
 │   └── circuit.go        # Circuit breaker
+├── exporters/
+│   ├── datadog/          # Datadog exporter
+│   ├── prometheus/       # Prometheus exporter
+│   └── cloudwatch/       # CloudWatch exporter
+├── serializers/
+│   ├── dogstatsd.go      # DogStatsD format
+│   ├── statsd.go         # StatsD format
+│   └── emf.go            # CloudWatch EMF format
 ├── examples/
-│   └── basic/main.go     # Basic usage example
+│   ├── basic/            # Basic usage example
+│   └── multibackend/     # Multi-backend example
+├── docs/                 # Detailed documentation
+│   ├── architecture.md
+│   ├── performance_guide.md
+│   ├── benchmarking.md
+│   └── performance_patterns.md
 └── CLAUDE.md             # This file
 ```
 
@@ -159,6 +225,12 @@ client, err := stats.NewClient(
     stats.WithEnvironment("production"),
     stats.WithBufferSize(16384),
     stats.WithWorkers(4),
+    
+    // Backpressure handling
+    stats.WithDropStrategy(stats.DropOldest),
+    stats.WithAdaptiveBatching(true),
+    
+    // Backend configuration
     stats.WithDatadog(&stats.DatadogConfig{
         AgentHost: "localhost",
         AgentPort: 8125,
@@ -177,29 +249,28 @@ client.Timing("db.query", duration,
 )
 ```
 
-## Next Steps (Phase 2+)
-
-1. Implement backend exporters:
-   - Datadog DogStatsD serializer
-   - Prometheus StatsD serializer
-   - CloudWatch EMF serializer
-
-2. Add OpenTelemetry integration:
-   - MeterProvider setup
-   - PeriodicReaders per backend
-   - Views for cardinality management
-
-3. Production hardening:
-   - String interning for tags
-   - Binary serialization
-   - UDP packet packing
-   - Internal metrics collection
-
 ## Testing
 
-- **Unit tests**: Core components (buffer, pool, circuit breaker)
+- **Unit tests**: Core components (buffer, pool, circuit breaker, pipeline)
+- **Robustness tests**: Panic recovery, parallel exporting, error tracking
+- **Backpressure tests**: Drop strategies, adaptive batching
 - **Concurrent tests**: Race detector enabled
 - **Benchmarks**: Performance validation
-- **Integration tests**: End-to-end with mock backends (TODO)
 
-Run tests with: `go test ./... -race -cover`
+Run tests with: `make test` or `make test-race`
+
+## Documentation
+
+- **README.md**: Quick start and API overview
+- **docs/architecture.md**: Detailed system architecture
+- **docs/performance_guide.md**: Performance tuning and optimization
+- **docs/benchmarking.md**: Benchmarking methodology
+- **docs/performance_patterns.md**: Common performance patterns
+
+## Recent Enhancements
+
+1. **Parallel Exporting**: Exporters now run concurrently to prevent slow backends from blocking others
+2. **Panic Recovery**: Worker goroutines are protected from panics in exporters
+3. **Per-Exporter Error Tracking**: Detailed visibility into which backends are failing
+4. **Drop Strategies**: Configurable behavior for handling buffer overflow
+5. **Adaptive Batching**: Automatic adjustment of batch size based on buffer pressure

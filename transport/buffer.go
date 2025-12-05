@@ -7,7 +7,7 @@ import (
 // RingBuffer is a lock-free, bounded, single-producer-multiple-consumer ring buffer
 // Optimized for high-throughput metric collection with minimal allocation
 type RingBuffer struct {
-	buffer   []any
+	buffer   []atomic.Pointer[any]
 	capacity uint64
 	mask     uint64
 
@@ -30,8 +30,9 @@ func NewRingBuffer(capacity int) *RingBuffer {
 	// Round up to next power of 2
 	cap := nextPowerOfTwo(uint64(capacity))
 
+	buffer := make([]atomic.Pointer[any], cap)
 	return &RingBuffer{
-		buffer:   make([]any, cap),
+		buffer:   buffer,
 		capacity: cap,
 		mask:     cap - 1,
 	}
@@ -57,7 +58,11 @@ func (rb *RingBuffer) Push(item any) bool {
 		if rb.writePos.CompareAndSwap(writePos, writePos+1) {
 			// Successfully claimed slot, write the item
 			idx := writePos & rb.mask
-			rb.buffer[idx] = item
+			// Allocate on heap to ensure pointer remains valid
+			itemPtr := new(any)
+			*itemPtr = item
+			// Store the item pointer
+			rb.buffer[idx].Store(itemPtr)
 			rb.added.Add(1)
 			return true
 		}
@@ -78,12 +83,20 @@ func (rb *RingBuffer) Pop() any {
 
 		// Try to claim this slot
 		if rb.readPos.CompareAndSwap(readPos, readPos+1) {
-			// Successfully claimed slot, read the item
+			// Successfully claimed slot, wait for item to be written
 			idx := readPos & rb.mask
-			item := rb.buffer[idx]
-			rb.buffer[idx] = nil // Help GC
+
+			// Spin-wait for the item to be written
+			// This ensures the writer has completed the Store operation
+			var itemPtr *any
+			for itemPtr == nil {
+				itemPtr = rb.buffer[idx].Load()
+			}
+
+			// Clear the slot for GC
+			rb.buffer[idx].Store(nil)
 			rb.removed.Add(1)
-			return item
+			return *itemPtr
 		}
 		// CAS failed, retry
 	}
