@@ -1,5 +1,9 @@
 .PHONY: all build test test-race test-cover bench lint clean help \
-        integration-up integration-down integration-test integration-test-verbose integration-logs
+        integration-up integration-down integration-test integration-test-verbose integration-logs \
+        install-golangci-lint
+
+# Tool versions
+GOLANGCI_LINT_VERSION := v2.7.0
 
 # Default target
 all: test
@@ -25,14 +29,21 @@ test-cover:
 bench:
 	go test -bench=. -benchmem ./...
 
-# Run linter
+# Install golangci-lint with specified version
+install-golangci-lint:
+	@echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."
+	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin $(GOLANGCI_LINT_VERSION)
+	@echo "golangci-lint $(GOLANGCI_LINT_VERSION) installed successfully"
+
+# Run linter (installs golangci-lint if not present)
 lint:
 	go vet ./...
-	@if command -v golangci-lint >/dev/null; then \
-		golangci-lint run; \
-	else \
-		echo "golangci-lint not installed. Skipping."; \
+	@if ! command -v golangci-lint >/dev/null 2>&1; then \
+		echo "golangci-lint not found. Installing $(GOLANGCI_LINT_VERSION)..."; \
+		$(MAKE) install-golangci-lint; \
 	fi
+	@echo "Running golangci-lint..."
+	@golangci-lint run
 
 # Start Docker services for integration tests
 integration-up:
@@ -75,7 +86,8 @@ help:
 	@echo "  test-race                - Run tests with race detector"
 	@echo "  test-cover               - Run tests with coverage report"
 	@echo "  bench                    - Run benchmarks"
-	@echo "  lint                     - Run linters"
+	@echo "  lint                     - Run linters (auto-installs golangci-lint if needed)"
+	@echo "  install-golangci-lint    - Install golangci-lint $(GOLANGCI_LINT_VERSION)"
 	@echo "  integration-up           - Start Docker services"
 	@echo "  integration-down         - Stop Docker services"
 	@echo "  integration-test         - Run integration tests"

@@ -37,11 +37,11 @@ type Pipeline struct {
 	shutdownCh   chan struct{}
 
 	// Metrics
-	processed      atomic.Uint64
-	dropped        atomic.Uint64
-	rateLimited    atomic.Uint64 // Metrics dropped due to rate limiting
-	errors         atomic.Uint64
-	memUsage       atomic.Int64
+	processed   atomic.Uint64
+	dropped     atomic.Uint64
+	rateLimited atomic.Uint64 // Metrics dropped due to rate limiting
+	errors      atomic.Uint64
+	memUsage    atomic.Int64
 
 	// Rate limiter for backpressure control
 	rateLimiter *RateLimiter
@@ -222,7 +222,7 @@ func (p *Pipeline) Record(ctx context.Context, m *Metric) error {
 }
 
 // worker processes metrics from the buffer
-func (p *Pipeline) worker(id int) {
+func (p *Pipeline) worker(_ int) {
 	defer p.wg.Done()
 
 	// Batch buffer for efficient processing
@@ -411,7 +411,7 @@ type PipelineStats struct {
 	BufferDropped  uint64
 	Processed      uint64
 	Dropped        uint64
-	RateLimited    uint64               // Metrics dropped due to rate limiting
+	RateLimited    uint64 // Metrics dropped due to rate limiting
 	Errors         uint64
 	MemoryUsage    int64
 	MaxMemory      int64

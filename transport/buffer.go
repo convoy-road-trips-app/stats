@@ -29,13 +29,13 @@ type RingBuffer struct {
 // Capacity must be a power of 2 for optimal performance
 func NewRingBuffer(capacity int) *RingBuffer {
 	// Round up to next power of 2
-	cap := nextPowerOfTwo(uint64(capacity))
+	capCount := nextPowerOfTwo(uint64(capacity))
 
-	buffer := make([]atomic.Pointer[any], cap)
+	buffer := make([]atomic.Pointer[any], capCount)
 	return &RingBuffer{
 		buffer:   buffer,
-		capacity: cap,
-		mask:     cap - 1,
+		capacity: capCount,
+		mask:     capCount - 1,
 	}
 }
 

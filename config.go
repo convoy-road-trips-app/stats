@@ -9,15 +9,22 @@ import (
 
 // Re-export config types from models package for backwards compatibility
 type (
-	Config           = models.Config
+	// Config is the main configuration struct
+	Config = models.Config
+	// CloudWatchConfig is the CloudWatch configuration struct
 	CloudWatchConfig = models.CloudWatchConfig
+	// PrometheusConfig is the Prometheus configuration struct
 	PrometheusConfig = models.PrometheusConfig
-	DatadogConfig    = models.DatadogConfig
-	DropStrategy     = models.DropStrategy
+	// DatadogConfig is the Datadog configuration struct
+	DatadogConfig = models.DatadogConfig
+	// DropStrategy is the drop strategy enum
+	DropStrategy = models.DropStrategy
 )
 
 const (
+	// DropNewest is the drop strategy that drops the newest metrics
 	DropNewest = models.DropNewest
+	// DropOldest is the drop strategy that drops the oldest metrics
 	DropOldest = models.DropOldest
 )
 

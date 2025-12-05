@@ -28,7 +28,7 @@ type Serializer interface {
 }
 
 // NewBaseExporter creates a new base exporter
-func NewBaseExporter(name string, address string, serializer Serializer) (*BaseExporter, error) {
+func NewBaseExporter(name, address string, serializer Serializer) (*BaseExporter, error) {
 	pool, err := transport.NewUDPConnPool(address, 4)
 	if err != nil {
 		return nil, fmt.Errorf("create UDP pool: %w", err)

@@ -9,20 +9,27 @@ import (
 
 // Re-export types from models package for backwards compatibility
 type (
-	Metric     = models.Metric
+	// Metric is the metric struct
+	Metric = models.Metric
+	// MetricType is the metric type enum
 	MetricType = models.MetricType
 )
 
 // Re-export constants
 const (
-	MetricTypeCounter   = models.MetricTypeCounter
-	MetricTypeGauge     = models.MetricTypeGauge
+	// MetricTypeCounter is the counter metric type
+	MetricTypeCounter = models.MetricTypeCounter
+	// MetricTypeGauge is the gauge metric type
+	MetricTypeGauge = models.MetricTypeGauge
+	// MetricTypeHistogram is the histogram metric type
 	MetricTypeHistogram = models.MetricTypeHistogram
 )
 
 // Re-export functions
 var (
+	// AcquireMetric acquires a metric from the pool
 	AcquireMetric = models.AcquireMetric
+	// ReleaseMetric releases a metric back to the pool
 	ReleaseMetric = models.ReleaseMetric
 )
 

@@ -130,13 +130,14 @@ func (cb *CircuitBreaker) recordSuccess() {
 	cb.totalSuccess.Add(1)
 	state := CircuitState(cb.state.Load())
 
-	if state == StateHalfOpen {
+	switch state {
+	case StateHalfOpen:
 		// If we're in half-open and got a success, try to close
 		if cb.state.CompareAndSwap(int32(StateHalfOpen), int32(StateClosed)) {
 			cb.failures.Store(0)
 			cb.stateChanges.Add(1)
 		}
-	} else if state == StateClosed {
+	case StateClosed:
 		// Reset failure count on success
 		cb.failures.Store(0)
 	}

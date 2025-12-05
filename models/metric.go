@@ -11,8 +11,11 @@ import (
 type MetricType int
 
 const (
+	// MetricTypeCounter is the counter metric type
 	MetricTypeCounter MetricType = iota
+	// MetricTypeGauge is the gauge metric type
 	MetricTypeGauge
+	// MetricTypeHistogram is the histogram metric type
 	MetricTypeHistogram
 )
 
