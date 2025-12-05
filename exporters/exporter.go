@@ -91,11 +91,11 @@ func (e *BaseExporter) Stats() ExporterStats {
 	breakerStats := e.breaker.Stats()
 
 	return ExporterStats{
-		Name:          e.name,
-		Exported:      e.exported.Load(),
-		Errors:        e.errors.Load(),
-		PoolStats:     poolStats,
-		BreakerStats:  breakerStats,
+		Name:         e.name,
+		Exported:     e.exported.Load(),
+		Errors:       e.errors.Load(),
+		PoolStats:    poolStats,
+		BreakerStats: breakerStats,
 	}
 }
 

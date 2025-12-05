@@ -36,21 +36,21 @@ func (s CircuitState) String() string {
 // CircuitBreaker implements the circuit breaker pattern to prevent cascading failures
 type CircuitBreaker struct {
 	// Configuration
-	threshold      int           // Number of failures before opening
-	timeout        time.Duration // Time to wait before attempting to close
-	halfOpenMax    int           // Max requests in half-open state
+	threshold   int           // Number of failures before opening
+	timeout     time.Duration // Time to wait before attempting to close
+	halfOpenMax int           // Max requests in half-open state
 
 	// State
-	state          atomic.Int32  // CircuitState
-	failures       atomic.Int32  // Consecutive failure count
-	lastFailTime   atomic.Int64  // Unix nano timestamp of last failure
-	halfOpenCount  atomic.Int32  // Number of requests in half-open state
+	state         atomic.Int32 // CircuitState
+	failures      atomic.Int32 // Consecutive failure count
+	lastFailTime  atomic.Int64 // Unix nano timestamp of last failure
+	halfOpenCount atomic.Int32 // Number of requests in half-open state
 
 	// Metrics
-	totalSuccess   atomic.Uint64
-	totalFailures  atomic.Uint64
-	totalRejected  atomic.Uint64
-	stateChanges   atomic.Uint64
+	totalSuccess  atomic.Uint64
+	totalFailures atomic.Uint64
+	totalRejected atomic.Uint64
+	stateChanges  atomic.Uint64
 
 	mu sync.RWMutex
 }
@@ -84,7 +84,6 @@ func (cb *CircuitBreaker) Call(ctx context.Context, fn func() error) error {
 
 	// Execute the function
 	err := fn()
-
 	// Record the result
 	if err != nil {
 		cb.recordFailure()

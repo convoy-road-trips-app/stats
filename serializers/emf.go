@@ -88,7 +88,7 @@ func (s *EMFSerializer) buildEMF(metric *models.Metric) map[string]interface{} {
 	// Build the complete EMF message
 	emf := map[string]interface{}{
 		"_aws": map[string]interface{}{
-			"Timestamp":  metric.Timestamp.UnixMilli(),
+			"Timestamp": metric.Timestamp.UnixMilli(),
 			"CloudWatchMetrics": []map[string]interface{}{
 				metricDef,
 			},

@@ -43,10 +43,10 @@ type Metric struct {
 // EstimateSize returns an estimate of the metric size in bytes
 func (m *Metric) EstimateSize() int64 {
 	size := int64(len(m.Name))
-	size += 8  // Value (float64)
-	size += 8  // Timestamp
-	size += 4  // Priority
-	size += 4  // Type
+	size += 8 // Value (float64)
+	size += 8 // Timestamp
+	size += 4 // Priority
+	size += 4 // Type
 
 	// Attributes
 	for _, attr := range m.Attributes {

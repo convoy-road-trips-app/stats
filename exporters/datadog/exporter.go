@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/convoy-road-trips-app/stats/models"
 	"github.com/convoy-road-trips-app/stats/exporters"
+	"github.com/convoy-road-trips-app/stats/models"
 	"github.com/convoy-road-trips-app/stats/serializers"
 )
 

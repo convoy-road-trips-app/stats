@@ -3,8 +3,8 @@ package stats
 import (
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
 	"github.com/convoy-road-trips-app/stats/models"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // Re-export types from models package for backwards compatibility
