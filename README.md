@@ -207,4 +207,4 @@ Copyright © 2024 Convoy Road Trips App
 
 ## Contributing
 
-See [Development Guide](docs/development.md) for development guidelines.
+See [CLAUDE.md](CLAUDE.md) for development guidelines.
