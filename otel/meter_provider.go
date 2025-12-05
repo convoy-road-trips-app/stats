@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -102,10 +103,15 @@ func WithResource(res *resource.Resource) MeterProviderOption {
 // WithStatsOptions returns a MeterProviderOption that configures the underlying stats client
 func WithStatsOptions(opts ...stats.Option) MeterProviderOption {
 	return func(mp *MeterProvider) error {
+		// Shutdown old client if it exists to prevent resource leaks
+		if mp.client != nil {
+			// Use background context with timeout for cleanup
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = mp.client.Shutdown(ctx)
+		}
+
 		// Re-create the client with new options
-		// Note: This is a bit inefficient as we're creating a client then discarding it
-		// but it allows for a clean API. In a real implementation, we might want to
-		// pass options to NewMeterProvider instead.
 		client, err := stats.NewClient(opts...)
 		if err != nil {
 			return err

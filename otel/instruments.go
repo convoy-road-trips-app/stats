@@ -29,8 +29,8 @@ func (i *int64Counter) Add(ctx context.Context, incr int64, opts ...metric.AddOp
 	// Convert to stats metric options
 	statsOpts := convertAttributes(attrs)
 
-	// Record to underlying stats client
-	_ = i.meter.provider.client.Counter(i.name, float64(incr), statsOpts...)
+	// Record to underlying stats client with context
+	_ = i.meter.provider.client.Counter(ctx, i.name, float64(incr), statsOpts...)
 }
 
 // float64Counter implements metric.Float64Counter
@@ -51,7 +51,7 @@ func (f *float64Counter) Add(ctx context.Context, incr float64, opts ...metric.A
 
 	statsOpts := convertAttributes(attrs)
 
-	_ = f.meter.provider.client.Counter(f.name, incr, statsOpts...)
+	_ = f.meter.provider.client.Counter(ctx, f.name, incr, statsOpts...)
 }
 
 // int64UpDownCounter implements metric.Int64UpDownCounter
@@ -73,7 +73,7 @@ func (i *int64UpDownCounter) Add(ctx context.Context, incr int64, opts ...metric
 	statsOpts := convertAttributes(attrs)
 
 	// UpDownCounter can go negative, use Gauge for this
-	_ = i.meter.provider.client.Gauge(i.name, float64(incr), statsOpts...)
+	_ = i.meter.provider.client.Gauge(ctx, i.name, float64(incr), statsOpts...)
 }
 
 // float64UpDownCounter implements metric.Float64UpDownCounter
@@ -94,7 +94,7 @@ func (f *float64UpDownCounter) Add(ctx context.Context, incr float64, opts ...me
 
 	statsOpts := convertAttributes(attrs)
 
-	_ = f.meter.provider.client.Gauge(f.name, incr, statsOpts...)
+	_ = f.meter.provider.client.Gauge(ctx, f.name, incr, statsOpts...)
 }
 
 // int64Histogram implements metric.Int64Histogram
@@ -115,7 +115,7 @@ func (i *int64Histogram) Record(ctx context.Context, value int64, opts ...metric
 
 	statsOpts := convertAttributes(attrs)
 
-	_ = i.meter.provider.client.Histogram(i.name, float64(value), statsOpts...)
+	_ = i.meter.provider.client.Histogram(ctx, i.name, float64(value), statsOpts...)
 }
 
 // float64Histogram implements metric.Float64Histogram
@@ -136,7 +136,7 @@ func (f *float64Histogram) Record(ctx context.Context, value float64, opts ...me
 
 	statsOpts := convertAttributes(attrs)
 
-	_ = f.meter.provider.client.Histogram(f.name, value, statsOpts...)
+	_ = f.meter.provider.client.Histogram(ctx, f.name, value, statsOpts...)
 }
 
 // int64Gauge implements metric.Int64Gauge
@@ -157,7 +157,7 @@ func (i *int64Gauge) Record(ctx context.Context, value int64, opts ...metric.Rec
 
 	statsOpts := convertAttributes(attrs)
 
-	_ = i.meter.provider.client.Gauge(i.name, float64(value), statsOpts...)
+	_ = i.meter.provider.client.Gauge(ctx, i.name, float64(value), statsOpts...)
 }
 
 // float64Gauge implements metric.Float64Gauge
@@ -178,7 +178,7 @@ func (f *float64Gauge) Record(ctx context.Context, value float64, opts ...metric
 
 	statsOpts := convertAttributes(attrs)
 
-	_ = f.meter.provider.client.Gauge(f.name, value, statsOpts...)
+	_ = f.meter.provider.client.Gauge(ctx, f.name, value, statsOpts...)
 }
 
 // Helper function to convert OTel attribute.Set to stats attributes

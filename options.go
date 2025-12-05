@@ -75,6 +75,17 @@ func WithAdaptiveBatching(enabled bool) Option {
 	}
 }
 
+// WithRateLimit enables rate limiting to prevent metric flooding
+// rate: metrics per second (e.g., 10000 for 10k metrics/sec)
+// burst: maximum burst size (e.g., 1000 for 1k burst)
+// Set rate to 0 to disable rate limiting
+func WithRateLimit(rate float64, burst int) Option {
+	return func(c *Config) {
+		c.RateLimitPerSecond = rate
+		c.RateLimitBurst = burst
+	}
+}
+
 // WithOTelMode enables OpenTelemetry mode
 // This is used internally by the otel package
 func WithOTelMode() Option {

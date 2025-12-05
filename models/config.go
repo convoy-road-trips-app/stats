@@ -31,6 +31,10 @@ type Config struct {
 	DropStrategy     DropStrategy
 	AdaptiveBatching bool
 
+	// Rate limiting (0 = disabled)
+	RateLimitPerSecond float64 // Metrics per second (0 = unlimited)
+	RateLimitBurst     int     // Maximum burst size
+
 	// Backend configurations
 	CloudWatch *CloudWatchConfig
 	Prometheus *PrometheusConfig

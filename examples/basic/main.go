@@ -24,8 +24,11 @@ func main() {
 	fmt.Println("Stats client created successfully!")
 	fmt.Println("Recording metrics...")
 
+	// Create context for metric operations
+	ctx := context.Background()
+
 	// Record a counter
-	if err := client.Counter("http.requests", 1.0,
+	if err := client.Counter(ctx, "http.requests", 1.0,
 		stats.WithAttribute("method", "GET"),
 		stats.WithAttribute("status", "200"),
 	); err != nil {
@@ -33,21 +36,21 @@ func main() {
 	}
 
 	// Record a gauge
-	if err := client.Gauge("memory.usage", 75.5,
+	if err := client.Gauge(ctx, "memory.usage", 75.5,
 		stats.WithAttribute("unit", "percent"),
 	); err != nil {
 		fmt.Printf("Error recording gauge: %v\n", err)
 	}
 
 	// Record a histogram
-	if err := client.Histogram("response.time", 145.3,
+	if err := client.Histogram(ctx, "response.time", 145.3,
 		stats.WithAttribute("endpoint", "/api/users"),
 	); err != nil {
 		fmt.Printf("Error recording histogram: %v\n", err)
 	}
 
 	// Use convenience methods
-	if err := client.Increment("page.views",
+	if err := client.Increment(ctx, "page.views",
 		stats.WithAttribute("page", "home"),
 	); err != nil {
 		fmt.Printf("Error incrementing counter: %v\n", err)
@@ -56,7 +59,7 @@ func main() {
 	// Record timing
 	start := time.Now()
 	time.Sleep(50 * time.Millisecond) // Simulate work
-	if err := client.Timing("operation.duration", time.Since(start),
+	if err := client.Timing(ctx, "operation.duration", time.Since(start),
 		stats.WithAttribute("operation", "database_query"),
 	); err != nil {
 		fmt.Printf("Error recording timing: %v\n", err)

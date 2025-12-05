@@ -27,4 +27,7 @@ var (
 
 	// ErrMemoryLimit is returned when memory limit is exceeded
 	ErrMemoryLimit = errors.New("stats: memory limit exceeded")
+
+	// ErrRateLimitExceeded is returned when rate limit is exceeded
+	ErrRateLimitExceeded = errors.New("stats: rate limit exceeded")
 )

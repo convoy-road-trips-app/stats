@@ -37,10 +37,14 @@ type Pipeline struct {
 	shutdownCh   chan struct{}
 
 	// Metrics
-	processed atomic.Uint64
-	dropped   atomic.Uint64
-	errors    atomic.Uint64
-	memUsage  atomic.Int64
+	processed      atomic.Uint64
+	dropped        atomic.Uint64
+	rateLimited    atomic.Uint64 // Metrics dropped due to rate limiting
+	errors         atomic.Uint64
+	memUsage       atomic.Int64
+
+	// Rate limiter for backpressure control
+	rateLimiter *RateLimiter
 
 	// Per-exporter error counters (index corresponds to exporters slice)
 	exporterErrors []atomic.Uint64
@@ -95,12 +99,19 @@ func NewPipeline(cfg *Config) (*Pipeline, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Create rate limiter if configured
+	var rateLimiter *RateLimiter
+	if cfg.RateLimitPerSecond > 0 {
+		rateLimiter = NewRateLimiter(cfg.RateLimitPerSecond, cfg.RateLimitBurst)
+	}
+
 	p := &Pipeline{
 		cfg:            cfg,
 		buffer:         transport.NewRingBuffer(cfg.BufferSize),
 		workers:        cfg.Workers,
 		exporters:      exporters,
 		exporterErrors: make([]atomic.Uint64, len(exporters)),
+		rateLimiter:    rateLimiter,
 		ctx:            ctx,
 		cancel:         cancel,
 		shutdownCh:     make(chan struct{}),
@@ -129,28 +140,71 @@ func (p *Pipeline) Record(ctx context.Context, m *Metric) error {
 	default:
 	}
 
+	// Check rate limit if enabled
+	if p.rateLimiter != nil && !p.rateLimiter.Allow() {
+		p.rateLimited.Add(1)
+		return ErrRateLimitExceeded
+	}
+
 	// Set timestamp if not set
 	if m.Timestamp.IsZero() {
 		m.Timestamp = time.Now()
 	}
 
-	// Check memory limit
+	// Atomically reserve memory using CAS loop to prevent race condition
+	// This fixes the TOCTOU (time-of-check-time-of-use) race
 	size := m.EstimateSize()
-	current := p.memUsage.Load()
-	if current+size > p.cfg.MaxMemoryBytes {
-		p.dropped.Add(1)
-		return ErrMemoryLimit
+	for {
+		current := p.memUsage.Load()
+		newUsage := current + size
+
+		// Check if adding this metric would exceed memory limit
+		if newUsage > p.cfg.MaxMemoryBytes {
+			p.dropped.Add(1)
+			return ErrMemoryLimit
+		}
+
+		// Atomically reserve memory
+		if p.memUsage.CompareAndSwap(current, newUsage) {
+			// Successfully reserved memory, now try to push to buffer
+			break
+		}
+		// CAS failed, retry the loop
 	}
 
 	// Try to push to buffer (non-blocking)
 	if !p.buffer.Push(m) {
-		// Buffer is full, handle based on drop strategy
+		// Buffer is full - rollback memory reservation
+		p.memUsage.Add(-size)
+
+		// Handle based on drop strategy
 		if p.cfg.DropStrategy == DropOldest {
 			// Remove oldest item to make room
-			p.buffer.Pop()
-			// Try pushing again
+			oldMetric := p.buffer.Pop()
+			if oldMetric != nil {
+				// Release old metric's memory and return to pool
+				if oldM, ok := oldMetric.(*Metric); ok {
+					p.memUsage.Add(-oldM.EstimateSize())
+					ReleaseMetric(oldM)
+				}
+			}
+
+			// Try pushing again with new memory reservation
+			for {
+				current := p.memUsage.Load()
+				newUsage := current + size
+				if newUsage > p.cfg.MaxMemoryBytes {
+					p.dropped.Add(1)
+					return ErrMemoryLimit
+				}
+				if p.memUsage.CompareAndSwap(current, newUsage) {
+					break
+				}
+			}
+
 			if !p.buffer.Push(m) {
-				// Still failed (race condition?), drop it
+				// Still failed, rollback and drop
+				p.memUsage.Add(-size)
 				p.dropped.Add(1)
 				return ErrBufferFull
 			}
@@ -158,14 +212,12 @@ func (p *Pipeline) Record(ctx context.Context, m *Metric) error {
 			return nil
 		}
 
-		// Default: DropNewest
+		// Default: DropNewest - just drop the new metric
 		p.dropped.Add(1)
 		return ErrBufferFull
 	}
 
-	// Update memory usage
-	p.memUsage.Add(size)
-
+	// Successfully pushed to buffer with memory reserved
 	return nil
 }
 
@@ -321,18 +373,27 @@ func (p *Pipeline) Shutdown(ctx context.Context) error {
 
 // Stats returns pipeline statistics
 func (p *Pipeline) Stats() PipelineStats {
-	return PipelineStats{
+	stats := PipelineStats{
 		BufferLen:      p.buffer.Len(),
 		BufferCap:      p.buffer.Cap(),
 		BufferDropped:  p.buffer.Dropped(),
 		Processed:      p.processed.Load(),
 		Dropped:        p.dropped.Load(),
+		RateLimited:    p.rateLimited.Load(),
 		Errors:         p.errors.Load(),
 		MemoryUsage:    p.memUsage.Load(),
 		MaxMemory:      p.cfg.MaxMemoryBytes,
 		Workers:        p.workers,
 		ExporterErrors: p.getExporterErrors(),
 	}
+
+	// Add rate limiter stats if enabled
+	if p.rateLimiter != nil {
+		rlStats := p.rateLimiter.Stats()
+		stats.RateLimiter = &rlStats
+	}
+
+	return stats
 }
 
 func (p *Pipeline) getExporterErrors() map[string]uint64 {
@@ -350,9 +411,11 @@ type PipelineStats struct {
 	BufferDropped  uint64
 	Processed      uint64
 	Dropped        uint64
+	RateLimited    uint64               // Metrics dropped due to rate limiting
 	Errors         uint64
 	MemoryUsage    int64
 	MaxMemory      int64
 	Workers        int
 	ExporterErrors map[string]uint64
+	RateLimiter    *RateLimiterStats // Rate limiter stats (nil if disabled)
 }

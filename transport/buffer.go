@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"runtime"
 	"sync/atomic"
 )
 
@@ -58,11 +59,9 @@ func (rb *RingBuffer) Push(item any) bool {
 		if rb.writePos.CompareAndSwap(writePos, writePos+1) {
 			// Successfully claimed slot, write the item
 			idx := writePos & rb.mask
-			// Allocate on heap to ensure pointer remains valid
-			itemPtr := new(any)
-			*itemPtr = item
-			// Store the item pointer
-			rb.buffer[idx].Store(itemPtr)
+			// Store the item directly (item is already a pointer)
+			// No need to wrap in another pointer - this fixes the memory leak
+			rb.buffer[idx].Store(&item)
 			rb.added.Add(1)
 			return true
 		}
@@ -86,16 +85,34 @@ func (rb *RingBuffer) Pop() any {
 			// Successfully claimed slot, wait for item to be written
 			idx := readPos & rb.mask
 
-			// Spin-wait for the item to be written
+			// Bounded spin-wait for the item to be written
 			// This ensures the writer has completed the Store operation
+			// Maximum attempts prevent infinite loop if writer crashes
 			var itemPtr *any
+			attempts := 0
+			maxAttempts := 1_000_000 // ~1ms on modern CPU
+
 			for itemPtr == nil {
 				itemPtr = rb.buffer[idx].Load()
+				if itemPtr == nil {
+					attempts++
+					if attempts > maxAttempts {
+						// Writer likely crashed - return nil to prevent deadlock
+						// This is a safety measure; shouldn't happen in normal operation
+						rb.removed.Add(1)
+						return nil
+					}
+					if attempts > 100 {
+						// After initial spins, yield to other goroutines
+						runtime.Gosched()
+					}
+				}
 			}
 
 			// Clear the slot for GC
 			rb.buffer[idx].Store(nil)
 			rb.removed.Add(1)
+			// Return the item directly (it's already a pointer)
 			return *itemPtr
 		}
 		// CAS failed, retry

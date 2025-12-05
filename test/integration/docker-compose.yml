@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  # Datadog Agent (StatsD server)
+  datadog:
+    image: datadog/agent:latest
+    container_name: stats-test-datadog
+    ports:
+      - "8125:8125/udp"  # DogStatsD
+      - "8126:8126/tcp"  # APM
+    environment:
+      - DD_API_KEY=test_api_key_12345
+      - DD_SITE=datadoghq.com
+      - DD_DOGSTATSD_NON_LOCAL_TRAFFIC=true
+      - DD_LOG_LEVEL=ERROR
+      - DD_APM_ENABLED=false
+    healthcheck:
+      test: ["CMD", "agent", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - stats-test
+
+  # Prometheus with StatsD Exporter
+  statsd-exporter:
+    image: prom/statsd-exporter:latest
+    container_name: stats-test-statsd
+    ports:
+      - "9125:9125/udp"  # StatsD
+      - "9102:9102/tcp"  # Metrics endpoint
+    command:
+      - '--statsd.mapping-config=/etc/statsd/statsd_mapping.yml'
+    volumes:
+      - ./statsd_mapping.yml:/etc/statsd/statsd_mapping.yml:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9102/metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - stats-test
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: stats-test-prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - statsd-exporter
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - stats-test
+
+  # Simple UDP receiver for testing
+  udp-receiver:
+    image: alpine:latest
+    container_name: stats-test-udp-receiver
+    command: ["nc", "-u", "-l", "-k", "-p", "9999"]
+    ports:
+      - "9999:9999/udp"
+    networks:
+      - stats-test
+
+networks:
+  stats-test:
+    name: stats-test-network
+    driver: bridge

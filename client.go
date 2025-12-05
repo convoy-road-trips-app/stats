@@ -3,6 +3,7 @@ package stats
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -55,12 +56,18 @@ func NewClient(opts ...Option) (*Client, error) {
 }
 
 // Counter records a counter metric
-func (c *Client) Counter(name string, value float64, opts ...MetricOption) error {
+// Context is propagated for cancellation, deadlines, and tracing
+func (c *Client) Counter(ctx context.Context, name string, value float64, opts ...MetricOption) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	if c.closed {
 		return ErrClientClosed
+	}
+
+	// Validate input
+	if err := validateMetricInput(name, value); err != nil {
+		return err
 	}
 
 	// Acquire metric from pool
@@ -75,8 +82,8 @@ func (c *Client) Counter(name string, value float64, opts ...MetricOption) error
 		opt(m)
 	}
 
-	// Record metric
-	if err := c.pipeline.Record(context.Background(), m); err != nil {
+	// Record metric with context
+	if err := c.pipeline.Record(ctx, m); err != nil {
 		// Return metric to pool if recording failed
 		ReleaseMetric(m)
 		return err
@@ -86,12 +93,18 @@ func (c *Client) Counter(name string, value float64, opts ...MetricOption) error
 }
 
 // Gauge records a gauge metric
-func (c *Client) Gauge(name string, value float64, opts ...MetricOption) error {
+// Context is propagated for cancellation, deadlines, and tracing
+func (c *Client) Gauge(ctx context.Context, name string, value float64, opts ...MetricOption) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	if c.closed {
 		return ErrClientClosed
+	}
+
+	// Validate input
+	if err := validateMetricInput(name, value); err != nil {
+		return err
 	}
 
 	m := AcquireMetric()
@@ -104,7 +117,7 @@ func (c *Client) Gauge(name string, value float64, opts ...MetricOption) error {
 		opt(m)
 	}
 
-	if err := c.pipeline.Record(context.Background(), m); err != nil {
+	if err := c.pipeline.Record(ctx, m); err != nil {
 		ReleaseMetric(m)
 		return err
 	}
@@ -113,12 +126,18 @@ func (c *Client) Gauge(name string, value float64, opts ...MetricOption) error {
 }
 
 // Histogram records a histogram metric
-func (c *Client) Histogram(name string, value float64, opts ...MetricOption) error {
+// Context is propagated for cancellation, deadlines, and tracing
+func (c *Client) Histogram(ctx context.Context, name string, value float64, opts ...MetricOption) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	if c.closed {
 		return ErrClientClosed
+	}
+
+	// Validate input
+	if err := validateMetricInput(name, value); err != nil {
+		return err
 	}
 
 	m := AcquireMetric()
@@ -131,7 +150,7 @@ func (c *Client) Histogram(name string, value float64, opts ...MetricOption) err
 		opt(m)
 	}
 
-	if err := c.pipeline.Record(context.Background(), m); err != nil {
+	if err := c.pipeline.Record(ctx, m); err != nil {
 		ReleaseMetric(m)
 		return err
 	}
@@ -152,19 +171,22 @@ func (c *Client) RecordMetric(ctx context.Context, m *Metric) error {
 }
 
 // Increment increments a counter by 1
-func (c *Client) Increment(name string, opts ...MetricOption) error {
-	return c.Counter(name, 1.0, opts...)
+// Context is propagated for cancellation, deadlines, and tracing
+func (c *Client) Increment(ctx context.Context, name string, opts ...MetricOption) error {
+	return c.Counter(ctx, name, 1.0, opts...)
 }
 
 // IncrementBy increments a counter by the given value
-func (c *Client) IncrementBy(name string, value float64, opts ...MetricOption) error {
-	return c.Counter(name, value, opts...)
+// Context is propagated for cancellation, deadlines, and tracing
+func (c *Client) IncrementBy(ctx context.Context, name string, value float64, opts ...MetricOption) error {
+	return c.Counter(ctx, name, value, opts...)
 }
 
 // Timing records a timing metric (histogram) in milliseconds
-func (c *Client) Timing(name string, duration time.Duration, opts ...MetricOption) error {
+// Context is propagated for cancellation, deadlines, and tracing
+func (c *Client) Timing(ctx context.Context, name string, duration time.Duration, opts ...MetricOption) error {
 	ms := float64(duration.Milliseconds())
-	return c.Histogram(name, ms, opts...)
+	return c.Histogram(ctx, name, ms, opts...)
 }
 
 // Stats returns client statistics
@@ -285,4 +307,28 @@ func (mb *MetricBuilder) WithPriority(priority int) *MetricBuilder {
 // Build returns the built metric
 func (mb *MetricBuilder) Build() *Metric {
 	return mb.metric
+}
+
+// validateMetricInput validates metric name and value
+func validateMetricInput(name string, value float64) error {
+	// Validate metric name
+	if name == "" {
+		return fmt.Errorf("%w: metric name cannot be empty", ErrInvalidConfig)
+	}
+
+	// Prevent excessively long names (DoS protection)
+	if len(name) > 256 {
+		return fmt.Errorf("%w: metric name exceeds maximum length (256 characters)", ErrInvalidConfig)
+	}
+
+	// Validate value is not NaN or Inf
+	if math.IsNaN(value) {
+		return fmt.Errorf("%w: metric value cannot be NaN", ErrInvalidConfig)
+	}
+
+	if math.IsInf(value, 0) {
+		return fmt.Errorf("%w: metric value cannot be Inf", ErrInvalidConfig)
+	}
+
+	return nil
 }

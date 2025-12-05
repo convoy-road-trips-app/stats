@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -51,12 +52,15 @@ func main() {
 	fmt.Println("  - CloudWatch (localhost:25888)")
 	fmt.Println()
 
+	// Create context for metric operations
+	ctx := context.Background()
+
 	// Record various types of metrics
 	fmt.Println("Recording metrics...")
 
 	// Counter - requests per second
 	for i := 0; i < 10; i++ {
-		client.Counter("http.requests", 1.0,
+		client.Counter(ctx, "http.requests", 1.0,
 			stats.WithAttribute("method", "GET"),
 			stats.WithAttribute("endpoint", "/api/users"),
 			stats.WithAttribute("status", "200"),
@@ -64,37 +68,37 @@ func main() {
 	}
 
 	// Gauge - current active connections
-	client.Gauge("connections.active", 42.0,
+	client.Gauge(ctx, "connections.active", 42.0,
 		stats.WithAttribute("server", "web-1"),
 	)
 
 	// Histogram - response times
 	responseTimes := []float64{23.5, 45.2, 12.8, 67.3, 34.1, 89.2, 15.6, 28.9, 52.4, 38.7}
 	for _, rt := range responseTimes {
-		client.Histogram("response.time", rt,
+		client.Histogram(ctx, "response.time", rt,
 			stats.WithAttribute("endpoint", "/api/users"),
 		)
 	}
 
 	// Use convenience methods
-	client.Increment("page.views",
+	client.Increment(ctx, "page.views",
 		stats.WithAttribute("page", "home"),
 	)
 
-	client.IncrementBy("bytes.sent", 1024.0,
+	client.IncrementBy(ctx, "bytes.sent", 1024.0,
 		stats.WithAttribute("protocol", "https"),
 	)
 
 	// Timing with actual duration
 	start := time.Now()
 	time.Sleep(50 * time.Millisecond) // Simulate work
-	client.Timing("database.query", time.Since(start),
+	client.Timing(ctx, "database.query", time.Since(start),
 		stats.WithAttribute("query", "SELECT"),
 		stats.WithAttribute("table", "users"),
 	)
 
 	// High-priority metric
-	client.Counter("error.critical", 1.0,
+	client.Counter(ctx, "error.critical", 1.0,
 		stats.WithAttribute("error_type", "database_connection"),
 		stats.WithPriority(3), // Critical priority
 	)

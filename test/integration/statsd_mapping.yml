@@ -1,0 +1,20 @@
+mappings:
+  - match: "*.*.http.*"
+    name: "http_requests"
+    labels:
+      service: "$1"
+      environment: "$2"
+      method: "$3"
+
+  - match: "*.*.*.gauge"
+    name: "${3}"
+    labels:
+      service: "$1"
+      environment: "$2"
+      type: "gauge"
+
+  - match: "*.*.*"
+    name: "$3"
+    labels:
+      service: "$1"
+      environment: "$2"
