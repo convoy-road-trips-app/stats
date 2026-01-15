@@ -359,11 +359,46 @@ go run examples/otel/main.go
 go run examples/multibackend/main.go
 ```
 
+## Testing & Mocking
+
+The library provides a `Recorder` interface and a `NoOpClient` to facilitate testing your application without sending real metrics.
+
+### Using the Recorder Interface
+
+Instead of depending on the concrete `*stats.Client`, your services should depend on the `stats.Recorder` interface:
+
+```go
+type MyService struct {
+    stats stats.Recorder
+}
+
+func NewMyService(s stats.Recorder) *MyService {
+    return &MyService{stats: s}
+}
+```
+
+### Mocking in Tests
+
+In your unit tests, you can use `stats.NewNoOpClient()` which implements the `Recorder` interface but performs no operations:
+
+```go
+func TestMyService(t *testing.T) {
+    // Non-blocking no-op client for testing
+    mockStats := stats.NewNoOpClient()
+    svc := NewMyService(mockStats)
+
+    // Run your tests...
+}
+```
+
+See [examples/testing/](examples/testing/) for a complete example.
+
 ## Examples
 
 - [`examples/basic/`](examples/basic/) - Simple legacy API usage
 - [`examples/otel/`](examples/otel/) - OpenTelemetry API usage
 - [`examples/multibackend/`](examples/multibackend/) - Multiple backends
+- [`examples/testing/`](examples/testing/) - Testing & Mocking guide
 
 ## Roadmap
 
