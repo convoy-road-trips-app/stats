@@ -292,8 +292,7 @@ func TestToResourceMetrics_UnknownMetricType(t *testing.T) {
 
 	rm := toResourceMetrics("svc", metrics)
 	sm := rm.ScopeMetrics[0]
-	assert.Len(t, sm.Metrics, 1)
-	assert.Nil(t, sm.Metrics[0].Data)
+	assert.Empty(t, sm.Metrics)
 }
 
 func TestToResourceMetrics_LargeMetricBatch(t *testing.T) {

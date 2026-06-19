@@ -113,7 +113,6 @@ func toResourceMetrics(serviceName string, metrics []*models.Metric) metricdata.
 				},
 			}
 		case models.MetricTypeHistogram:
-			// For this proof of concept, we represent each observation as a single-count point
 			metricData.Data = metricdata.Histogram[float64]{
 				Temporality: metricdata.DeltaTemporality,
 				DataPoints: []metricdata.HistogramDataPoint[float64]{
@@ -125,6 +124,8 @@ func toResourceMetrics(serviceName string, metrics []*models.Metric) metricdata.
 					},
 				},
 			}
+		default:
+			continue
 		}
 
 		scopeMetrics.Metrics = append(scopeMetrics.Metrics, metricData)
