@@ -61,13 +61,13 @@ integration-down:
 # Run integration tests
 integration-test: integration-up
 	@echo "Running integration tests..."
-	go test -v -tags=integration ./test/integration/... || (make integration-down && exit 1)
+	go test -v -tags=integration ./test/integration || (make integration-down && exit 1)
 	@make integration-down
 
 # Run integration tests with verbose output
 integration-test-verbose: integration-up
 	@echo "Running integration tests (verbose)..."
-	go test -v -tags=integration ./test/integration/... -test.v || (make integration-down && exit 1)
+	go test -v -tags=integration ./test/integration -test.v || (make integration-down && exit 1)
 	@make integration-down
 
 # View logs from Docker services
