@@ -161,6 +161,12 @@ jobs:
       - name: Run LGTM integration tests
         run: go test -v -count=1 -tags=integration ./test/integration/lgtm/...
 
+      - name: LGTM diagnostics
+        if: failure()
+        run: |
+          docker compose -f test/integration/lgtm/docker-compose.yml ps
+          docker compose -f test/integration/lgtm/docker-compose.yml logs --tail=100
+
       - name: Stop LGTM stack
         if: always()
         run: make lgtm-down

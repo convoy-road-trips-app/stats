@@ -77,9 +77,10 @@ integration-logs:
 # Start LGTM stack for OTLP integration tests
 lgtm-up:
 	@echo "Starting LGTM stack..."
-	cd test/integration/lgtm && docker compose up -d --wait
-	@echo "Waiting for LGTM stack to be ready..."
-	@sleep 15
+	cd test/integration/lgtm && docker compose up -d --wait --wait-timeout 120
+	@echo "Verifying LGTM stack..."
+	@docker compose -f test/integration/lgtm/docker-compose.yml ps
+	@docker compose -f test/integration/lgtm/docker-compose.yml logs --tail=30
 
 # Stop LGTM stack
 lgtm-down:
