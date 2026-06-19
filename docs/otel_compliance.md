@@ -131,6 +131,7 @@ Attempting to create these instruments will return an error:
 │  • Datadog (DogStatsD)                                        │
 │  • Prometheus (StatsD)                                        │
 │  • CloudWatch (EMF)                                           │
+│  • OTLP (gRPC)                                                │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -242,6 +243,11 @@ provider, _ := otel.NewMeterProvider(
             AgentHost: "localhost",
             AgentPort: 8125,
         }),
+        stats.WithOTLP(&stats.OTLPConfig{
+            Endpoint:    "localhost:4317",
+            Insecure:    true,
+            ServiceName: "my-service",
+        }),
     ),
 )
 ```
@@ -261,7 +267,6 @@ provider, _ := otel.NewMeterProvider(
 - [ ] Metric views for cardinality control
 - [ ] Custom metric readers
 - [ ] Cumulative temporality support
-- [ ] Native OTLP exporter
 
 ## Examples
 
@@ -276,7 +281,7 @@ See [`examples/otel/main.go`](../examples/otel/main.go) for a complete working e
 | Performance | Very High (lock-free) | Good |
 | Memory Usage | Low (bounded) | Unbounded |
 | Blocking | Never blocks | Can block |
-| Backends | UDP (Datadog, Prom, CW) | OTLP, Prometheus |
+| Backends | Datadog, Prom, CW, OTLP | OTLP, Prometheus |
 | Aggregation | None (pass-through) | Full aggregation |
 | Views | Not yet | Yes |
 

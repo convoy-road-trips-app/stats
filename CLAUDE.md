@@ -220,7 +220,7 @@ for name, count := range stats.Pipeline.ExporterErrors {
 │   ├── datadog/          # Datadog DogStatsD exporter
 │   ├── prometheus/       # Prometheus StatsD exporter
 │   ├── cloudwatch/       # CloudWatch EMF exporter
-│   └── otlp/             # OTLP HTTP exporter
+│   └── otlp/             # OTLP gRPC exporter
 ├── serializers/
 │   ├── dogstatsd.go      # DogStatsD format
 │   ├── statsd.go         # StatsD format
