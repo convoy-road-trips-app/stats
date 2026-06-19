@@ -133,8 +133,13 @@ func TestRingBuffer_Concurrent(t *testing.T) {
 
 	wg.Wait()
 
+	for rb.Pop() != nil {
+	}
+
 	assert.Equal(t, totalPushAttempts, rb.Added()+rb.Dropped())
-	assert.LessOrEqual(t, rb.Removed(), rb.Added())
+	assert.LessOrEqual(t, rb.Dropped(), uint64(producers))
+	assert.Equal(t, rb.Added(), rb.Removed())
+	assert.Equal(t, 0, rb.Len())
 }
 
 func TestRingBuffer_Stats(t *testing.T) {
