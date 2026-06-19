@@ -246,20 +246,29 @@ func TestLGTM_ConcurrentExport(t *testing.T) {
 	client := newOTLPClient(t, "lgtm-concurrent")
 	ctx := context.Background()
 
-	var wg sync.WaitGroup
+	var (
+		wg     sync.WaitGroup
+		mu     sync.Mutex
+		errors []error
+	)
 	for g := range 8 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 			for i := range 25 {
-				_ = client.Counter(ctx, "lgtm_concurrent_ops", 1.0,
+				if err := client.Counter(ctx, "lgtm_concurrent_ops", 1.0,
 					stats.WithAttribute("goroutine", fmt.Sprintf("%d", id)),
 					stats.WithAttribute("iter", fmt.Sprintf("%d", i)),
-				)
+				); err != nil {
+					mu.Lock()
+					errors = append(errors, err)
+					mu.Unlock()
+				}
 			}
 		}(g)
 	}
 	wg.Wait()
+	require.Empty(t, errors, "concurrent Counter calls returned errors: %v", errors)
 	require.NoError(t, client.Close())
 
 	resp := waitForMetric(t, `{__name__=~"lgtm_concurrent_ops.*"}`)

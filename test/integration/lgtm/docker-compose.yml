@@ -1,6 +1,6 @@
 services:
   lgtm:
-    image: grafana/otel-lgtm:latest
+    image: grafana/otel-lgtm:0.8.1
     container_name: stats-test-lgtm
     ports:
       - "3000:3000"
