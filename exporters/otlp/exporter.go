@@ -29,6 +29,10 @@ func NewExporter(config *models.OTLPConfig) (*Exporter, error) {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
+	if !config.Enabled {
+		return &Exporter{config: config}, nil
+	}
+
 	opts := []otlpmetricgrpc.Option{
 		otlpmetricgrpc.WithEndpoint(config.Endpoint),
 	}
@@ -139,5 +143,8 @@ func (e *Exporter) Name() string {
 
 // Shutdown closes the exporter
 func (e *Exporter) Shutdown(ctx context.Context) error {
+	if e.otlpExporter == nil {
+		return nil
+	}
 	return e.otlpExporter.Shutdown(ctx)
 }
