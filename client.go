@@ -239,11 +239,17 @@ func (c *Client) Shutdown(ctx context.Context) error {
 		c.mu.Unlock()
 
 		if c.collector != nil {
-			_ = c.collector.Stop(ctx)
+			if err := c.collector.Stop(ctx); err != nil {
+				shutdownErr = fmt.Errorf("stop runtime collector: %w", err)
+			}
 		}
 
 		// Shutdown pipeline
-		shutdownErr = c.pipeline.Shutdown(ctx)
+		if err := c.pipeline.Shutdown(ctx); err != nil {
+			if shutdownErr == nil {
+				shutdownErr = err
+			}
+		}
 	})
 
 	return shutdownErr

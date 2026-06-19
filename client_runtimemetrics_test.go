@@ -19,7 +19,7 @@ func TestClientRuntimeMetrics_Enabled(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	s := client.Stats()
-	assert.Greater(t, s.Pipeline.Processed, uint64(0), "expected runtime metrics to be processed by pipeline")
+	assert.Positive(t, s.Pipeline.Processed, "expected runtime metrics to be processed by pipeline")
 	require.NoError(t, client.Close())
 }
 

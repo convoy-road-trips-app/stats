@@ -78,7 +78,7 @@ type RuntimeMetricsConfig struct {
 // DefaultRuntimeMetricsConfig returns the default runtime metrics configuration
 func DefaultRuntimeMetricsConfig() *RuntimeMetricsConfig {
 	return &RuntimeMetricsConfig{
-		Enabled:         true,
+		Enabled:         false,
 		CollectInterval: 10 * time.Second,
 		Prefix:          "runtime.go",
 	}

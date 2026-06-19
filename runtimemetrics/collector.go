@@ -11,8 +11,11 @@ import (
 	"github.com/convoy-road-trips-app/stats/models"
 )
 
+// RecordFunc is the callback the collector uses to emit metrics.
+// The client injects this to route runtime metrics into the pipeline.
 type RecordFunc func(name string, mtype models.MetricType, value float64)
 
+// Config holds the runtime metrics collector configuration.
 type Config struct {
 	CollectInterval time.Duration
 	Prefix          string
@@ -48,6 +51,7 @@ func getMappings() []metricMapping {
 	}
 }
 
+// Collector samples Go runtime metrics and emits them via a RecordFunc.
 type Collector struct {
 	cfg     Config
 	record  RecordFunc
@@ -60,7 +64,12 @@ type Collector struct {
 	wg        sync.WaitGroup
 }
 
+// New creates a Collector. If record is nil, a no-op is used.
 func New(cfg Config, record RecordFunc) *Collector {
+	if record == nil {
+		record = func(string, models.MetricType, float64) {}
+	}
+
 	mappings := getMappings()
 	samples := make([]metrics.Sample, len(mappings))
 	names := make([][]string, len(mappings))
@@ -87,6 +96,7 @@ func New(cfg Config, record RecordFunc) *Collector {
 	}
 }
 
+// Start begins periodic collection. Idempotent.
 func (c *Collector) Start() {
 	c.startOnce.Do(func() {
 		c.stopCh = make(chan struct{})
@@ -113,6 +123,7 @@ func (c *Collector) Start() {
 	})
 }
 
+// Stop halts collection and waits for the goroutine to exit.
 func (c *Collector) Stop(ctx context.Context) error {
 	c.stopOnce.Do(func() {
 		if c.stopCh != nil {
@@ -134,6 +145,7 @@ func (c *Collector) Stop(ctx context.Context) error {
 	}
 }
 
+// Collect triggers a single synchronous sample.
 func (c *Collector) Collect() {
 	c.collectOnce()
 }

@@ -107,13 +107,15 @@ rate(runtime.go.cpu.user.seconds{service:my-app})
 
 **Prometheus (PromQL):**
 ```
-rate(runtime_go_cpu_user_seconds[5m])
+rate(stats_runtime_go_cpu_user_seconds[5m])
 ```
 
 **Grafana:**
 ```
-increase(runtime_go_heap_allocs_bytes[$__interval])
+increase(stats_runtime_go_heap_allocs_bytes[$__interval])
 ```
+
+Note: The `stats_` prefix comes from the Prometheus exporter's configured Job name (default `"stats"`). Adjust to match your `PrometheusConfig.Job` value.
 
 ## v1 Scope
 

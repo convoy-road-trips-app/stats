@@ -31,7 +31,7 @@ func main() {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create client: %v", err))
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	fmt.Println("Stats client created with runtime metrics enabled.")
 	fmt.Println()
@@ -57,7 +57,7 @@ func main() {
 	fmt.Println()
 	fmt.Println("  Garbage Collection:")
 	fmt.Println("    runtime.go.gc.cycles.total        - number of completed GC cycles")
-	fmt.Println("    runtime.go.gc.cpu.seconds         - fraction of CPU time spent in GC")
+	fmt.Println("    runtime.go.gc.cpu.seconds         - cumulative CPU seconds spent in GC")
 	fmt.Println()
 	fmt.Println("  Scheduler:")
 	fmt.Println("    runtime.go.goroutines             - current goroutine count")
