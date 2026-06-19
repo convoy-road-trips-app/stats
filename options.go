@@ -1,6 +1,10 @@
 package stats
 
-import "time"
+import (
+	"time"
+
+	"github.com/convoy-road-trips-app/stats/models"
+)
 
 // Option is a function that configures the stats client
 type Option func(*Config)
@@ -127,5 +131,16 @@ func WithOTLP(cfg *OTLPConfig) Option {
 		}
 		cfg.Enabled = true
 		c.OTLP = cfg
+	}
+}
+
+// WithRuntimeMetrics enables runtime metrics collection
+func WithRuntimeMetrics() Option {
+	return func(c *Config) {
+		if c.RuntimeMetrics == nil {
+			c.RuntimeMetrics = models.DefaultRuntimeMetricsConfig()
+		}
+		c.RuntimeMetrics.Enabled = true
+		c.RuntimeMetrics.ApplyDefaults()
 	}
 }

@@ -36,10 +36,11 @@ type Config struct {
 	RateLimitBurst     int     // Maximum burst size
 
 	// Backend configurations
-	CloudWatch *CloudWatchConfig
-	Prometheus *PrometheusConfig
-	Datadog    *DatadogConfig
-	OTLP       *OTLPConfig
+	CloudWatch     *CloudWatchConfig
+	Prometheus     *PrometheusConfig
+	Datadog        *DatadogConfig
+	OTLP           *OTLPConfig
+	RuntimeMetrics *RuntimeMetricsConfig
 }
 
 // CloudWatchConfig configures the CloudWatch exporter
@@ -65,6 +66,22 @@ type DatadogConfig struct {
 	AgentHost string
 	AgentPort int
 	Tags      []string
+}
+
+// RuntimeMetricsConfig configures runtime metrics collection
+type RuntimeMetricsConfig struct {
+	Enabled         bool
+	CollectInterval time.Duration
+	Prefix          string
+}
+
+// DefaultRuntimeMetricsConfig returns the default runtime metrics configuration
+func DefaultRuntimeMetricsConfig() *RuntimeMetricsConfig {
+	return &RuntimeMetricsConfig{
+		Enabled:         false,
+		CollectInterval: 10 * time.Second,
+		Prefix:          "runtime.go",
+	}
 }
 
 // Address returns the full UDP address for CloudWatch
@@ -106,6 +123,27 @@ func (c *DatadogConfig) Validate() error {
 	}
 	if c.AgentPort <= 0 || c.AgentPort > 65535 {
 		return fmt.Errorf("datadog: invalid agent port")
+	}
+	return nil
+}
+
+// ApplyDefaults fills in zero-value runtime metrics configuration fields
+func (c *RuntimeMetricsConfig) ApplyDefaults() {
+	if c.CollectInterval <= 0 {
+		c.CollectInterval = 10 * time.Second
+	}
+	if c.Prefix == "" {
+		c.Prefix = "runtime.go"
+	}
+}
+
+// Validate checks if the runtime metrics configuration is valid
+func (c *RuntimeMetricsConfig) Validate() error {
+	if c.CollectInterval <= 0 {
+		return fmt.Errorf("runtime metrics: collect interval must be greater than 0")
+	}
+	if c.Prefix == "" {
+		return fmt.Errorf("runtime metrics: prefix is required")
 	}
 	return nil
 }
