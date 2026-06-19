@@ -39,6 +39,7 @@ type Config struct {
 	CloudWatch *CloudWatchConfig
 	Prometheus *PrometheusConfig
 	Datadog    *DatadogConfig
+	OTLP       *OTLPConfig
 }
 
 // CloudWatchConfig configures the CloudWatch exporter

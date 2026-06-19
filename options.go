@@ -118,3 +118,11 @@ func WithDatadog(cfg *DatadogConfig) Option {
 		c.Datadog = cfg
 	}
 }
+
+// WithOTLP enables and configures OTLP exporter
+func WithOTLP(cfg *OTLPConfig) Option {
+	return func(c *Config) {
+		cfg.Enabled = true
+		c.OTLP = cfg
+	}
+}

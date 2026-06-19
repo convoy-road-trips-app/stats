@@ -17,6 +17,8 @@ type (
 	PrometheusConfig = models.PrometheusConfig
 	// DatadogConfig is the Datadog configuration struct
 	DatadogConfig = models.DatadogConfig
+	// OTLPConfig is the OTLP configuration struct
+	OTLPConfig = models.OTLPConfig
 	// DropStrategy is the drop strategy enum
 	DropStrategy = models.DropStrategy
 )
@@ -82,6 +84,12 @@ func ValidateConfig(c *Config) error {
 	if c.Datadog != nil && c.Datadog.Enabled {
 		if err := c.Datadog.Validate(); err != nil {
 			return fmt.Errorf("datadog config: %w", err)
+		}
+	}
+
+	if c.OTLP != nil && c.OTLP.Enabled {
+		if err := c.OTLP.Validate(); err != nil {
+			return fmt.Errorf("otlp config: %w", err)
 		}
 	}
 
