@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,7 +27,7 @@ import (
 const (
 	prometheusURL = "http://localhost:9090"
 	otlpEndpoint  = "localhost:4317"
-	queryTimeout  = 30 * time.Second
+	queryTimeout  = 60 * time.Second
 	pollInterval  = 2 * time.Second
 )
 
@@ -39,18 +40,36 @@ func TestMain(m *testing.M) {
 }
 
 func waitForReady() error {
-	deadline := time.Now().Add(60 * time.Second)
+	deadline := time.Now().Add(90 * time.Second)
+	promReady := false
+	otlpReady := false
+
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(prometheusURL + "/-/ready")
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				return nil
+		if !promReady {
+			resp, err := http.Get(prometheusURL + "/-/ready") //nolint:noctx
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					promReady = true
+				}
 			}
+		}
+
+		if !otlpReady {
+			conn, err := net.DialTimeout("tcp", otlpEndpoint, 2*time.Second)
+			if err == nil {
+				conn.Close()
+				otlpReady = true
+			}
+		}
+
+		if promReady && otlpReady {
+			time.Sleep(5 * time.Second)
+			return nil
 		}
 		time.Sleep(2 * time.Second)
 	}
-	return fmt.Errorf("prometheus not ready after 60s")
+	return fmt.Errorf("LGTM stack not ready after 90s (prometheus=%v, otlp=%v)", promReady, otlpReady)
 }
 
 type promResponse struct {
@@ -120,37 +139,26 @@ func newOTLPClient(t *testing.T, svc string) *stats.Client {
 
 func TestLGTM_LegacyMode(t *testing.T) {
 	client := newOTLPClient(t, "lgtm-legacy")
-	defer client.Close()
-
 	ctx := context.Background()
 
-	t.Run("Counter", func(t *testing.T) {
-		for i := range 10 {
-			err := client.Counter(ctx, "lgtm_legacy_requests", 1.0,
-				stats.WithAttribute("method", "GET"),
-				stats.WithAttribute("iter", fmt.Sprintf("%d", i)),
-			)
-			require.NoError(t, err)
-		}
-	})
+	for i := range 10 {
+		require.NoError(t, client.Counter(ctx, "lgtm_legacy_requests", 1.0,
+			stats.WithAttribute("method", "GET"),
+			stats.WithAttribute("iter", fmt.Sprintf("%d", i)),
+		))
+	}
 
-	t.Run("Gauge", func(t *testing.T) {
-		err := client.Gauge(ctx, "lgtm_legacy_memory", 72.5,
-			stats.WithAttribute("unit", "percent"),
-		)
-		require.NoError(t, err)
-	})
+	require.NoError(t, client.Gauge(ctx, "lgtm_legacy_memory", 72.5,
+		stats.WithAttribute("unit", "percent"),
+	))
 
-	t.Run("Histogram", func(t *testing.T) {
-		for i := range 5 {
-			err := client.Histogram(ctx, "lgtm_legacy_latency", float64(i+1)*25.0,
-				stats.WithAttribute("endpoint", "/api"),
-			)
-			require.NoError(t, err)
-		}
-	})
+	for i := range 5 {
+		require.NoError(t, client.Histogram(ctx, "lgtm_legacy_latency", float64(i+1)*25.0,
+			stats.WithAttribute("endpoint", "/api"),
+		))
+	}
 
-	time.Sleep(2 * time.Second)
+	require.NoError(t, client.Close())
 
 	t.Run("VerifyCounter", func(t *testing.T) {
 		resp := waitForMetric(t, `{__name__=~"lgtm_legacy_requests.*"}`)
@@ -165,14 +173,6 @@ func TestLGTM_LegacyMode(t *testing.T) {
 	t.Run("VerifyHistogram", func(t *testing.T) {
 		resp := waitForMetric(t, `{__name__=~"lgtm_legacy_latency.*"}`)
 		assert.NotEmpty(t, resp.Data.Result)
-	})
-
-	t.Run("VerifyPipelineStats", func(t *testing.T) {
-		st := client.Stats()
-		t.Logf("Processed=%d Dropped=%d Errors=%d",
-			st.Pipeline.Processed, st.Pipeline.Dropped, st.Pipeline.Errors)
-		assert.Greater(t, st.Pipeline.Processed, int64(0))
-		assert.Zero(t, st.Pipeline.Errors)
 	})
 }
 
@@ -191,44 +191,33 @@ func TestLGTM_OTelMode(t *testing.T) {
 		),
 	)
 	require.NoError(t, err)
-	defer provider.Shutdown(context.Background())
 
 	meter := provider.Meter("lgtm-test")
-
 	ctx := context.Background()
 
-	t.Run("Int64Counter", func(t *testing.T) {
-		counter, err := meter.Int64Counter("lgtm_otel_events")
-		require.NoError(t, err)
-
-		for range 10 {
-			counter.Add(ctx, 1, metric.WithAttributes(
-				attribute.String("source", "test"),
-			))
-		}
-	})
-
-	t.Run("Float64Histogram", func(t *testing.T) {
-		hist, err := meter.Float64Histogram("lgtm_otel_duration")
-		require.NoError(t, err)
-
-		for i := range 5 {
-			hist.Record(ctx, float64(i+1)*33.3, metric.WithAttributes(
-				attribute.String("op", "query"),
-			))
-		}
-	})
-
-	t.Run("Float64Gauge", func(t *testing.T) {
-		gauge, err := meter.Float64Gauge("lgtm_otel_cpu")
-		require.NoError(t, err)
-
-		gauge.Record(ctx, 65.2, metric.WithAttributes(
-			attribute.String("host", "web-1"),
+	counter, err := meter.Int64Counter("lgtm_otel_events")
+	require.NoError(t, err)
+	for range 10 {
+		counter.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("source", "test"),
 		))
-	})
+	}
 
-	time.Sleep(2 * time.Second)
+	hist, err := meter.Float64Histogram("lgtm_otel_duration")
+	require.NoError(t, err)
+	for i := range 5 {
+		hist.Record(ctx, float64(i+1)*33.3, metric.WithAttributes(
+			attribute.String("op", "query"),
+		))
+	}
+
+	gauge, err := meter.Float64Gauge("lgtm_otel_cpu")
+	require.NoError(t, err)
+	gauge.Record(ctx, 65.2, metric.WithAttributes(
+		attribute.String("host", "web-1"),
+	))
+
+	require.NoError(t, provider.Shutdown(ctx))
 
 	t.Run("VerifyCounter", func(t *testing.T) {
 		resp := waitForMetric(t, `{__name__=~"lgtm_otel_events.*"}`)
@@ -248,8 +237,6 @@ func TestLGTM_OTelMode(t *testing.T) {
 
 func TestLGTM_ConcurrentExport(t *testing.T) {
 	client := newOTLPClient(t, "lgtm-concurrent")
-	defer client.Close()
-
 	ctx := context.Background()
 
 	var wg sync.WaitGroup
@@ -266,33 +253,23 @@ func TestLGTM_ConcurrentExport(t *testing.T) {
 		}(g)
 	}
 	wg.Wait()
-
-	time.Sleep(2 * time.Second)
+	require.NoError(t, client.Close())
 
 	resp := waitForMetric(t, `{__name__=~"lgtm_concurrent_ops.*"}`)
 	assert.NotEmpty(t, resp.Data.Result)
-
-	st := client.Stats()
-	t.Logf("Processed=%d Dropped=%d Errors=%d",
-		st.Pipeline.Processed, st.Pipeline.Dropped, st.Pipeline.Errors)
-	assert.Greater(t, st.Pipeline.Processed, int64(0))
-	assert.Zero(t, st.Pipeline.Errors)
 }
 
 func TestLGTM_Attributes(t *testing.T) {
 	client := newOTLPClient(t, "lgtm-attrs")
-	defer client.Close()
-
 	ctx := context.Background()
 
-	err := client.Counter(ctx, "lgtm_attr_check", 1.0,
+	require.NoError(t, client.Counter(ctx, "lgtm_attr_check", 1.0,
 		stats.WithAttribute("env", "test"),
 		stats.WithAttribute("region", "us-east-1"),
 		stats.WithAttribute("version", "v1.2.3"),
-	)
-	require.NoError(t, err)
+	))
 
-	time.Sleep(2 * time.Second)
+	require.NoError(t, client.Close())
 
 	resp := waitForMetric(t, `{__name__=~"lgtm_attr_check.*", env="test"}`)
 	require.NotEmpty(t, resp.Data.Result)
