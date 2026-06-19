@@ -22,6 +22,8 @@ type int64Counter struct {
 
 func (i *int64Counter) getName() string { return i.name }
 
+func (i *int64Counter) Enabled(context.Context) bool { return true }
+
 func (i *int64Counter) Add(ctx context.Context, incr int64, opts ...metric.AddOption) {
 	cfg := metric.NewAddConfig(opts)
 	attrs := cfg.Attributes()
@@ -45,6 +47,8 @@ type float64Counter struct {
 
 func (f *float64Counter) getName() string { return f.name }
 
+func (f *float64Counter) Enabled(context.Context) bool { return true }
+
 func (f *float64Counter) Add(ctx context.Context, incr float64, opts ...metric.AddOption) {
 	cfg := metric.NewAddConfig(opts)
 	attrs := cfg.Attributes()
@@ -65,6 +69,8 @@ type int64UpDownCounter struct {
 }
 
 func (i *int64UpDownCounter) getName() string { return i.name }
+
+func (i *int64UpDownCounter) Enabled(context.Context) bool { return true }
 
 func (i *int64UpDownCounter) Add(ctx context.Context, incr int64, opts ...metric.AddOption) {
 	cfg := metric.NewAddConfig(opts)
@@ -88,6 +94,8 @@ type float64UpDownCounter struct {
 
 func (f *float64UpDownCounter) getName() string { return f.name }
 
+func (f *float64UpDownCounter) Enabled(context.Context) bool { return true }
+
 func (f *float64UpDownCounter) Add(ctx context.Context, incr float64, opts ...metric.AddOption) {
 	cfg := metric.NewAddConfig(opts)
 	attrs := cfg.Attributes()
@@ -108,6 +116,8 @@ type int64Histogram struct {
 }
 
 func (i *int64Histogram) getName() string { return i.name }
+
+func (i *int64Histogram) Enabled(context.Context) bool { return true }
 
 func (i *int64Histogram) Record(ctx context.Context, value int64, opts ...metric.RecordOption) {
 	cfg := metric.NewRecordConfig(opts)
@@ -130,6 +140,8 @@ type float64Histogram struct {
 
 func (f *float64Histogram) getName() string { return f.name }
 
+func (f *float64Histogram) Enabled(context.Context) bool { return true }
+
 func (f *float64Histogram) Record(ctx context.Context, value float64, opts ...metric.RecordOption) {
 	cfg := metric.NewRecordConfig(opts)
 	attrs := cfg.Attributes()
@@ -151,6 +163,8 @@ type int64Gauge struct {
 
 func (i *int64Gauge) getName() string { return i.name }
 
+func (i *int64Gauge) Enabled(context.Context) bool { return true }
+
 func (i *int64Gauge) Record(ctx context.Context, value int64, opts ...metric.RecordOption) {
 	cfg := metric.NewRecordConfig(opts)
 	attrs := cfg.Attributes()
@@ -171,6 +185,8 @@ type float64Gauge struct {
 }
 
 func (f *float64Gauge) getName() string { return f.name }
+
+func (f *float64Gauge) Enabled(context.Context) bool { return true }
 
 func (f *float64Gauge) Record(ctx context.Context, value float64, opts ...metric.RecordOption) {
 	cfg := metric.NewRecordConfig(opts)
