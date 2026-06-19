@@ -9,6 +9,7 @@ import (
 
 	"github.com/convoy-road-trips-app/stats/exporters/cloudwatch"
 	"github.com/convoy-road-trips-app/stats/exporters/datadog"
+	"github.com/convoy-road-trips-app/stats/exporters/otlp"
 	"github.com/convoy-road-trips-app/stats/exporters/prometheus"
 	"github.com/convoy-road-trips-app/stats/transport"
 )
@@ -95,6 +96,17 @@ func NewPipeline(cfg *Config) (*Pipeline, error) {
 			return nil, fmt.Errorf("create cloudwatch exporter: %w", err)
 		}
 		exporters = append(exporters, cwExporter)
+	}
+
+	if cfg.OTLP != nil && cfg.OTLP.Enabled {
+		if cfg.OTLP.ServiceName == "" {
+			cfg.OTLP.ServiceName = cfg.ServiceName
+		}
+		otlpExporter, err := otlp.NewExporter(cfg.OTLP)
+		if err != nil {
+			return nil, fmt.Errorf("create otlp exporter: %w", err)
+		}
+		exporters = append(exporters, otlpExporter)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
