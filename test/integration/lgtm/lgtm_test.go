@@ -43,10 +43,11 @@ func waitForReady() error {
 	deadline := time.Now().Add(90 * time.Second)
 	promReady := false
 	otlpReady := false
+	httpClient := &http.Client{Timeout: 5 * time.Second}
 
 	for time.Now().Before(deadline) {
 		if !promReady {
-			resp, err := http.Get(prometheusURL + "/-/ready") //nolint:noctx
+			resp, err := httpClient.Get(prometheusURL + "/-/ready")
 			if err == nil {
 				resp.Body.Close()
 				if resp.StatusCode == http.StatusOK {
@@ -91,7 +92,13 @@ func queryProm(t *testing.T, promQL string) *promResponse {
 	t.Helper()
 	u := fmt.Sprintf("%s/api/v1/query?query=%s", prometheusURL, url.QueryEscape(promQL))
 
-	resp, err := http.Get(u) //nolint:noctx
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
