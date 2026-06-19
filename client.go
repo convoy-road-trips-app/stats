@@ -8,12 +8,15 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/convoy-road-trips-app/stats/runtimemetrics"
 )
 
 // Client is the main stats library client
 type Client struct {
-	cfg      *Config
-	pipeline *Pipeline
+	cfg       *Config
+	pipeline  *Pipeline
+	collector *runtimemetrics.Collector
 
 	// Shutdown coordination
 	shutdownOnce sync.Once
@@ -50,6 +53,28 @@ func NewClient(opts ...Option) (*Client, error) {
 	client := &Client{
 		cfg:      cfg,
 		pipeline: pipeline,
+	}
+
+	if cfg.RuntimeMetrics != nil && cfg.RuntimeMetrics.Enabled {
+		record := func(name string, mtype MetricType, value float64) {
+			ctx := context.Background()
+			switch mtype {
+			case MetricTypeGauge:
+				_ = client.Gauge(ctx, name, value)
+			case MetricTypeCounter:
+				_ = client.Counter(ctx, name, value)
+			case MetricTypeHistogram:
+				_ = client.Histogram(ctx, name, value)
+			}
+		}
+		client.collector = runtimemetrics.New(
+			runtimemetrics.Config{
+				CollectInterval: cfg.RuntimeMetrics.CollectInterval,
+				Prefix:          cfg.RuntimeMetrics.Prefix,
+			},
+			record,
+		)
+		client.collector.Start()
 	}
 
 	return client, nil
@@ -212,6 +237,10 @@ func (c *Client) Shutdown(ctx context.Context) error {
 		c.mu.Lock()
 		c.closed = true
 		c.mu.Unlock()
+
+		if c.collector != nil {
+			_ = c.collector.Stop(ctx)
+		}
 
 		// Shutdown pipeline
 		shutdownErr = c.pipeline.Shutdown(ctx)
