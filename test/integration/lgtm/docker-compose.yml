@@ -1,0 +1,24 @@
+services:
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    container_name: stats-test-lgtm
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
+      - "9090:9090"
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health && wget --quiet --tries=1 --spider http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - lgtm-test
+
+networks:
+  lgtm-test:
+    name: lgtm-test-network
+    driver: bridge
