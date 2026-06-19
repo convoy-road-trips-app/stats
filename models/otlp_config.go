@@ -1,6 +1,9 @@
 package models
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // OTLPProtocol selects the transport for the OTLP exporter.
 type OTLPProtocol string
@@ -14,12 +17,13 @@ const (
 
 // OTLPConfig configures the OTLP exporter
 type OTLPConfig struct {
-	Enabled     bool
-	Endpoint    string            // e.g., "localhost:4317" for gRPC, "localhost:4318" for HTTP
-	Insecure    bool              // Use insecure connection (no TLS)
-	Headers     map[string]string // Additional headers sent with each request
-	ServiceName string
-	Protocol    OTLPProtocol // "grpc" (default) or "http"
+	Enabled       bool
+	Endpoint      string            // e.g., "localhost:4317" for gRPC, "localhost:4318" for HTTP
+	Insecure      bool              // Use insecure connection (no TLS)
+	Headers       map[string]string // Additional headers sent with each request
+	ServiceName   string
+	Protocol      OTLPProtocol  // "grpc" (default) or "http"
+	ExportTimeout time.Duration // Per-export deadline; defaults to 10s if zero
 }
 
 // Validate validates the OTLP configuration

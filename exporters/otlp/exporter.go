@@ -3,6 +3,7 @@ package otlp
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -100,6 +101,13 @@ func (e *Exporter) Export(ctx context.Context, metrics []*models.Metric) error {
 	if !e.config.Enabled || len(metrics) == 0 {
 		return nil
 	}
+
+	timeout := e.config.ExportTimeout
+	if timeout == 0 {
+		timeout = 10 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
 	rm := toResourceMetrics(e.config.ServiceName, metrics)
 	return e.otlpExporter.Export(ctx, &rm)
