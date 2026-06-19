@@ -49,6 +49,25 @@ func TestNewExporter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		{
+			name: "valid http config",
+			config: &models.OTLPConfig{
+				Enabled:  true,
+				Endpoint: "localhost:4318",
+				Insecure: true,
+				Protocol: models.OTLPProtocolHTTP,
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid protocol",
+			config: &models.OTLPConfig{
+				Enabled:  true,
+				Endpoint: "localhost:4317",
+				Protocol: "websocket",
+			},
+			expectError: true,
+		},
 	}
 
 	for _, tt := range tests {

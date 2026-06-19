@@ -6,6 +6,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -13,10 +14,15 @@ import (
 	"github.com/convoy-road-trips-app/stats/models"
 )
 
-// Exporter sends metrics to OpenTelemetry Collector via OTLP/gRPC
+type otlpMetricExporter interface {
+	Export(ctx context.Context, rm *metricdata.ResourceMetrics) error
+	Shutdown(ctx context.Context) error
+}
+
+// Exporter sends metrics to an OpenTelemetry Collector via OTLP
 type Exporter struct {
 	config       *models.OTLPConfig
-	otlpExporter *otlpmetricgrpc.Exporter
+	otlpExporter otlpMetricExporter
 }
 
 // NewExporter creates a new OTLP exporter
@@ -33,6 +39,27 @@ func NewExporter(config *models.OTLPConfig) (*Exporter, error) {
 		return &Exporter{config: config}, nil
 	}
 
+	exp, err := newTransport(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Exporter{
+		config:       config,
+		otlpExporter: exp,
+	}, nil
+}
+
+func newTransport(config *models.OTLPConfig) (otlpMetricExporter, error) {
+	switch config.Protocol {
+	case models.OTLPProtocolHTTP:
+		return newHTTPExporter(config)
+	default:
+		return newGRPCExporter(config)
+	}
+}
+
+func newGRPCExporter(config *models.OTLPConfig) (*otlpmetricgrpc.Exporter, error) {
 	opts := []otlpmetricgrpc.Option{
 		otlpmetricgrpc.WithEndpoint(config.Endpoint),
 	}
@@ -45,13 +72,27 @@ func NewExporter(config *models.OTLPConfig) (*Exporter, error) {
 
 	exp, err := otlpmetricgrpc.New(context.Background(), opts...)
 	if err != nil {
-		return nil, fmt.Errorf("create otlp metric grpc exporter: %w", err)
+		return nil, fmt.Errorf("create otlp grpc exporter: %w", err)
+	}
+	return exp, nil
+}
+
+func newHTTPExporter(config *models.OTLPConfig) (*otlpmetrichttp.Exporter, error) {
+	opts := []otlpmetrichttp.Option{
+		otlpmetrichttp.WithEndpoint(config.Endpoint),
+	}
+	if config.Insecure {
+		opts = append(opts, otlpmetrichttp.WithInsecure())
+	}
+	if len(config.Headers) > 0 {
+		opts = append(opts, otlpmetrichttp.WithHeaders(config.Headers))
 	}
 
-	return &Exporter{
-		config:       config,
-		otlpExporter: exp,
-	}, nil
+	exp, err := otlpmetrichttp.New(context.Background(), opts...)
+	if err != nil {
+		return nil, fmt.Errorf("create otlp http exporter: %w", err)
+	}
+	return exp, nil
 }
 
 // Export sends metrics to OTLP collector
@@ -64,7 +105,6 @@ func (e *Exporter) Export(ctx context.Context, metrics []*models.Metric) error {
 	return e.otlpExporter.Export(ctx, &rm)
 }
 
-// toResourceMetrics converts internal metrics to OTLP ResourceMetrics
 func toResourceMetrics(serviceName string, metrics []*models.Metric) metricdata.ResourceMetrics {
 	resName := serviceName
 	if resName == "" {

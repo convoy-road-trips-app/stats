@@ -19,6 +19,8 @@ type (
 	DatadogConfig = models.DatadogConfig
 	// OTLPConfig is the OTLP configuration struct
 	OTLPConfig = models.OTLPConfig
+	// OTLPProtocol selects gRPC or HTTP transport
+	OTLPProtocol = models.OTLPProtocol
 	// DropStrategy is the drop strategy enum
 	DropStrategy = models.DropStrategy
 )
@@ -28,6 +30,9 @@ const (
 	DropNewest = models.DropNewest
 	// DropOldest is the drop strategy that drops the oldest metrics
 	DropOldest = models.DropOldest
+
+	OTLPProtocolGRPC = models.OTLPProtocolGRPC
+	OTLPProtocolHTTP = models.OTLPProtocolHTTP
 )
 
 // DefaultConfig returns a configuration with sensible defaults

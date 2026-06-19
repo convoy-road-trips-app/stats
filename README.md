@@ -187,7 +187,18 @@ stats.WithOTLP(&stats.OTLPConfig{
 })
 ```
 
-When `Enabled` is false (or the config is omitted), no gRPC connection is established and the exporter is a no-op.
+#### OTLP (HTTP)
+
+```go
+stats.WithOTLP(&stats.OTLPConfig{
+    Endpoint:    "localhost:4318",
+    Insecure:    true,
+    ServiceName: "my-service",
+    Protocol:    stats.OTLPProtocolHTTP,
+})
+```
+
+When `Enabled` is false (or the config is omitted), no connection is established and the exporter is a no-op. `Protocol` defaults to `"grpc"` if unset.
 
 ## Architecture
 
