@@ -176,6 +176,30 @@ stats.WithCloudWatch(&stats.CloudWatchConfig{
 })
 ```
 
+#### OTLP (gRPC)
+
+```go
+stats.WithOTLP(&stats.OTLPConfig{
+    Endpoint:    "localhost:4317",
+    Insecure:    true,
+    ServiceName: "my-service",
+    Headers:     map[string]string{"Authorization": "Bearer token"},
+})
+```
+
+#### OTLP (HTTP)
+
+```go
+stats.WithOTLP(&stats.OTLPConfig{
+    Endpoint:    "localhost:4318",
+    Insecure:    true,
+    ServiceName: "my-service",
+    Protocol:    stats.OTLPProtocolHTTP,
+})
+```
+
+When `Enabled` is false (or the config is omitted), no connection is established and the exporter is a no-op. `Protocol` defaults to `"grpc"` if unset.
+
 ## Architecture
 
 For a detailed overview of the system architecture, see [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -206,6 +230,7 @@ For a detailed overview of the system architecture, see [ARCHITECTURE.md](ARCHIT
 │  • Datadog (DogStatsD over UDP)                               │
 │  • Prometheus (StatsD over UDP)                               │
 │  • CloudWatch (EMF via logs)                                  │
+│  • OTLP (gRPC to OTel Collector)                              │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -440,7 +465,7 @@ See [examples/testing/](examples/testing/) for a complete example.
 - [ ] Metric views for cardinality control
 - [ ] Custom metric readers
 - [ ] Cumulative temporality support
-- [ ] Native OTLP exporter
+- [x] Native OTLP exporter
 - [ ] String interning for attribute keys
 - [ ] Binary serialization optimization
 - [ ] Internal metrics collection

@@ -1,9 +1,10 @@
 .PHONY: all build test test-race test-cover bench lint clean help \
         integration-up integration-down integration-test integration-test-verbose integration-logs \
+        lgtm-up lgtm-down lgtm-test \
         install-golangci-lint
 
 # Tool versions
-GOLANGCI_LINT_VERSION := v2.7.0
+GOLANGCI_LINT_VERSION := v2.12.2
 
 # Default target
 all: test
@@ -60,18 +61,37 @@ integration-down:
 # Run integration tests
 integration-test: integration-up
 	@echo "Running integration tests..."
-	go test -v -tags=integration ./test/integration/... || (make integration-down && exit 1)
+	go test -v -tags=integration ./test/integration || (make integration-down && exit 1)
 	@make integration-down
 
 # Run integration tests with verbose output
 integration-test-verbose: integration-up
 	@echo "Running integration tests (verbose)..."
-	go test -v -tags=integration ./test/integration/... -test.v || (make integration-down && exit 1)
+	go test -v -tags=integration ./test/integration -test.v || (make integration-down && exit 1)
 	@make integration-down
 
 # View logs from Docker services
 integration-logs:
 	cd test/integration && docker-compose logs -f
+
+# Start LGTM stack for OTLP integration tests
+lgtm-up:
+	@echo "Starting LGTM stack..."
+	cd test/integration/lgtm && docker compose up -d --wait --wait-timeout 120
+	@echo "Verifying LGTM stack..."
+	@docker compose -f test/integration/lgtm/docker-compose.yml ps
+	@docker compose -f test/integration/lgtm/docker-compose.yml logs --tail=30
+
+# Stop LGTM stack
+lgtm-down:
+	@echo "Stopping LGTM stack..."
+	cd test/integration/lgtm && docker compose down -v
+
+# Run LGTM integration tests
+lgtm-test: lgtm-up
+	@echo "Running LGTM integration tests..."
+	go test -v -count=1 -tags=integration ./test/integration/lgtm/... || (make lgtm-down && exit 1)
+	@make lgtm-down
 
 # Clean build artifacts
 clean:
@@ -93,4 +113,7 @@ help:
 	@echo "  integration-test         - Run integration tests"
 	@echo "  integration-test-verbose - Run integration tests (verbose)"
 	@echo "  integration-logs         - View Docker service logs"
+	@echo "  lgtm-up                  - Start LGTM stack (Grafana, Mimir, OTel Collector)"
+	@echo "  lgtm-down                - Stop LGTM stack"
+	@echo "  lgtm-test                - Run LGTM integration tests"
 	@echo "  clean                    - Clean build artifacts"

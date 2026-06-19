@@ -1,0 +1,17 @@
+services:
+  lgtm:
+    image: grafana/otel-lgtm:0.8.1
+    container_name: stats-test-lgtm
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
+      - "9090:9090"
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health && wget --quiet --tries=1 --spider http://localhost:9090/-/ready && wget --quiet --tries=1 --spider -O /dev/null http://localhost:4318/v1/metrics 2>&1; test $? -ne 4"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 45s

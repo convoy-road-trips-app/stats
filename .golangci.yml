@@ -1,14 +1,39 @@
 version: "2"
+
 run:
   modules-download-mode: readonly
   tests: true
+  timeout: 5m
+
 linters:
   enable:
+    - bodyclose
+    - copyloopvar
+    - dupword
+    - durationcheck
+    - errorlint
+    - exhaustive
+    - fatcontext
     - gocritic
     - gocyclo
+    - gosec
+    - intrange
+    - makezero
     - misspell
+    - nakedret
+    - nestif
+    - nilerr
+    - nilnil
+    - noctx
+    - prealloc
     - revive
+    - testifylint
+    - unconvert
     - unparam
+    - usestdlibvars
+    - wastedassign
+    - whitespace
+
   settings:
     gocritic:
       disabled-checks:
@@ -17,14 +42,29 @@ linters:
         - diagnostic
         - performance
         - style
+
     gocyclo:
       min-complexity: 15
+
+    exhaustive:
+      default-signifies-exhaustive: true
+
+    nakedret:
+      max-func-lines: 30
+
+    nestif:
+      min-complexity: 5
+
     revive:
       rules:
         - name: var-naming
           disabled: true
         - name: exported
           disabled: false
+
+    testifylint:
+      enable-all: true
+
   exclusions:
     generated: lax
     rules:
@@ -33,6 +73,8 @@ linters:
           - errcheck
           - gocyclo
           - gosec
+          - exhaustive
+          - funlen
         path: _test\.go
       - linters:
           - all
@@ -41,9 +83,11 @@ linters:
       - third_party$
       - builtin$
       - examples$
+
 formatters:
   enable:
     - gofmt
+    - goimports
   exclusions:
     generated: lax
     paths:

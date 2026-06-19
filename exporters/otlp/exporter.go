@@ -3,16 +3,27 @@ package otlp
 import (
 	"context"
 	"fmt"
+	"time"
 
-	"github.com/convoy-road-trips-app/stats/exporters"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
+	"go.opentelemetry.io/otel/sdk/instrumentation"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"go.opentelemetry.io/otel/sdk/resource"
+
 	"github.com/convoy-road-trips-app/stats/models"
 )
 
-// Exporter sends metrics to OpenTelemetry Collector via OTLP/gRPC
-// This is a placeholder for now - full implementation would use the official OTLP exporter
+type otlpMetricExporter interface {
+	Export(ctx context.Context, rm *metricdata.ResourceMetrics) error
+	Shutdown(ctx context.Context) error
+}
+
+// Exporter sends metrics to an OpenTelemetry Collector via OTLP
 type Exporter struct {
-	*exporters.BaseExporter
-	config *models.OTLPConfig
+	config       *models.OTLPConfig
+	otlpExporter otlpMetricExporter
 }
 
 // NewExporter creates a new OTLP exporter
@@ -25,27 +36,157 @@ func NewExporter(config *models.OTLPConfig) (*Exporter, error) {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	// For now, we'll use a simple serializer
-	// In a full implementation, this would use the official OTLP protocol
-	// and send via gRPC to the collector
+	if !config.Enabled {
+		return &Exporter{config: config}, nil
+	}
 
-	// TODO: Implement proper OTLP/gRPC export
-	// This requires converting our internal metrics to otlpmetricpb.ResourceMetrics
-	// and using the official go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc
+	exp, err := newTransport(config)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Exporter{
-		config: config,
-	}, fmt.Errorf("OTLP exporter not yet fully implemented - use otel.NewMeterProvider() with official OTel exporters instead")
+		config:       config,
+		otlpExporter: exp,
+	}, nil
+}
+
+func newTransport(config *models.OTLPConfig) (otlpMetricExporter, error) {
+	switch config.Protocol {
+	case models.OTLPProtocolHTTP:
+		return newHTTPExporter(config)
+	default:
+		return newGRPCExporter(config)
+	}
+}
+
+func newGRPCExporter(config *models.OTLPConfig) (*otlpmetricgrpc.Exporter, error) {
+	opts := []otlpmetricgrpc.Option{
+		otlpmetricgrpc.WithEndpoint(config.Endpoint),
+	}
+	if config.Insecure {
+		opts = append(opts, otlpmetricgrpc.WithInsecure())
+	}
+	if len(config.Headers) > 0 {
+		opts = append(opts, otlpmetricgrpc.WithHeaders(config.Headers))
+	}
+
+	exp, err := otlpmetricgrpc.New(context.Background(), opts...)
+	if err != nil {
+		return nil, fmt.Errorf("create otlp grpc exporter: %w", err)
+	}
+	return exp, nil
+}
+
+func newHTTPExporter(config *models.OTLPConfig) (*otlpmetrichttp.Exporter, error) {
+	opts := []otlpmetrichttp.Option{
+		otlpmetrichttp.WithEndpoint(config.Endpoint),
+	}
+	if config.Insecure {
+		opts = append(opts, otlpmetrichttp.WithInsecure())
+	}
+	if len(config.Headers) > 0 {
+		opts = append(opts, otlpmetrichttp.WithHeaders(config.Headers))
+	}
+
+	exp, err := otlpmetrichttp.New(context.Background(), opts...)
+	if err != nil {
+		return nil, fmt.Errorf("create otlp http exporter: %w", err)
+	}
+	return exp, nil
 }
 
 // Export sends metrics to OTLP collector
 func (e *Exporter) Export(ctx context.Context, metrics []*models.Metric) error {
-	if !e.config.Enabled {
+	if !e.config.Enabled || len(metrics) == 0 {
 		return nil
 	}
 
-	// TODO: Convert metrics to OTLP format and send via gRPC
-	return fmt.Errorf("not implemented")
+	timeout := e.config.ExportTimeout
+	if timeout == 0 {
+		timeout = 10 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	rm := toResourceMetrics(e.config.ServiceName, metrics)
+	return e.otlpExporter.Export(ctx, &rm)
+}
+
+func toResourceMetrics(serviceName string, metrics []*models.Metric) metricdata.ResourceMetrics {
+	resName := serviceName
+	if resName == "" {
+		resName = "unknown_service"
+	}
+
+	res := resource.NewWithAttributes(
+		"",
+		attribute.String("service.name", resName),
+	)
+
+	scopeMetrics := metricdata.ScopeMetrics{
+		Scope: instrumentation.Scope{
+			Name: "github.com/convoy-road-trips-app/stats",
+		},
+		Metrics: make([]metricdata.Metrics, 0, len(metrics)),
+	}
+
+	for _, m := range metrics {
+		attrs := attribute.NewSet(m.Attributes...)
+		metricData := metricdata.Metrics{
+			Name: m.Name,
+		}
+
+		switch m.Type {
+		case models.MetricTypeCounter:
+			metricData.Data = metricdata.Sum[float64]{
+				Temporality: metricdata.DeltaTemporality,
+				IsMonotonic: true,
+				DataPoints: []metricdata.DataPoint[float64]{
+					{
+						Attributes: attrs,
+						Time:       m.Timestamp,
+						Value:      m.Value,
+					},
+				},
+			}
+		case models.MetricTypeGauge:
+			metricData.Data = metricdata.Gauge[float64]{
+				DataPoints: []metricdata.DataPoint[float64]{
+					{
+						Attributes: attrs,
+						Time:       m.Timestamp,
+						Value:      m.Value,
+					},
+				},
+			}
+		case models.MetricTypeHistogram:
+			metricData.Data = metricdata.Histogram[float64]{
+				Temporality: metricdata.DeltaTemporality,
+				DataPoints: []metricdata.HistogramDataPoint[float64]{
+					{
+						Attributes:   attrs,
+						Time:         m.Timestamp,
+						Count:        1,
+						Sum:          m.Value,
+						Bounds:       []float64{},
+						BucketCounts: []uint64{1},
+						Min:          metricdata.NewExtrema(m.Value),
+						Max:          metricdata.NewExtrema(m.Value),
+					},
+				},
+			}
+		default:
+			continue
+		}
+
+		scopeMetrics.Metrics = append(scopeMetrics.Metrics, metricData)
+	}
+
+	return metricdata.ResourceMetrics{
+		Resource:     res,
+		ScopeMetrics: []metricdata.ScopeMetrics{scopeMetrics},
+	}
 }
 
 // Name returns the exporter name
@@ -55,5 +196,8 @@ func (e *Exporter) Name() string {
 
 // Shutdown closes the exporter
 func (e *Exporter) Shutdown(ctx context.Context) error {
-	return nil
+	if e.otlpExporter == nil {
+		return nil
+	}
+	return e.otlpExporter.Shutdown(ctx)
 }
