@@ -157,10 +157,14 @@ func toResourceMetrics(serviceName string, metrics []*models.Metric) metricdata.
 				Temporality: metricdata.DeltaTemporality,
 				DataPoints: []metricdata.HistogramDataPoint[float64]{
 					{
-						Attributes: attrs,
-						Time:       m.Timestamp,
-						Count:      1,
-						Sum:        m.Value,
+						Attributes:   attrs,
+						Time:         m.Timestamp,
+						Count:        1,
+						Sum:          m.Value,
+						Bounds:       []float64{},
+						BucketCounts: []uint64{1},
+						Min:          metricdata.NewExtrema(m.Value),
+						Max:          metricdata.NewExtrema(m.Value),
 					},
 				},
 			}

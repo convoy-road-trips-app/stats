@@ -384,9 +384,12 @@ func TestToResourceMetrics_HistogramProperties(t *testing.T) {
 	h := rm.ScopeMetrics[0].Metrics[0].Data.(metricdata.Histogram[float64])
 
 	assert.Equal(t, metricdata.DeltaTemporality, h.Temporality)
-	assert.Equal(t, uint64(1), h.DataPoints[0].Count)
-	assert.InDelta(t, 250.5, h.DataPoints[0].Sum, 0.001)
-	assert.Equal(t, now, h.DataPoints[0].Time)
+	dp := h.DataPoints[0]
+	assert.Equal(t, uint64(1), dp.Count)
+	assert.InDelta(t, 250.5, dp.Sum, 0.001)
+	assert.Equal(t, now, dp.Time)
+	assert.Empty(t, dp.Bounds)
+	assert.Equal(t, []uint64{1}, dp.BucketCounts)
 }
 
 func TestNewExporter_ConfigValidation(t *testing.T) {
