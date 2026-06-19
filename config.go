@@ -31,7 +31,9 @@ const (
 	// DropOldest is the drop strategy that drops the oldest metrics
 	DropOldest = models.DropOldest
 
+	// OTLPProtocolGRPC selects gRPC transport (port 4317)
 	OTLPProtocolGRPC = models.OTLPProtocolGRPC
+	// OTLPProtocolHTTP selects HTTP/protobuf transport (port 4318)
 	OTLPProtocolHTTP = models.OTLPProtocolHTTP
 )
 

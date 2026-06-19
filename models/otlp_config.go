@@ -6,7 +6,9 @@ import "fmt"
 type OTLPProtocol string
 
 const (
+	// OTLPProtocolGRPC selects gRPC transport (port 4317)
 	OTLPProtocolGRPC OTLPProtocol = "grpc"
+	// OTLPProtocolHTTP selects HTTP/protobuf transport (port 4318)
 	OTLPProtocolHTTP OTLPProtocol = "http"
 )
 
