@@ -12,6 +12,7 @@ A production-ready, non-blocking UDP-based stats library for Go with **full Open
 - ✅ **Resilient**: Circuit breakers, panic recovery, graceful degradation
 - ✅ **Production Ready**: Memory-bounded, race-detector tested, adaptive backpressure
 - ✅ **Dual API**: Simple legacy API + standard OTel API
+- ✅ **Runtime Metrics**: Automatic Go CPU, heap, GC, and goroutine telemetry
 
 ## Quick Start
 
@@ -199,6 +200,38 @@ stats.WithOTLP(&stats.OTLPConfig{
 ```
 
 When `Enabled` is false (or the config is omitted), no connection is established and the exporter is a no-op. `Protocol` defaults to `"grpc"` if unset.
+
+#### Runtime Metrics (Go CPU + Heap)
+
+Enable automatic Go runtime telemetry with a single option:
+
+```go
+// Legacy Mode
+client, err := stats.NewClient(
+    stats.WithServiceName("my-service"),
+    stats.WithRuntimeMetrics(), // collects every 10s, prefix "runtime.go"
+)
+
+// OTel Mode
+provider, err := otel.NewMeterProvider(
+    otel.WithStatsOptions(
+        stats.WithServiceName("my-service"),
+        stats.WithRuntimeMetrics(),
+    ),
+)
+```
+
+**Collected metrics** (prefix `runtime.go.`):
+
+| Group | Example Metrics |
+|-------|----------------|
+| Memory | `memory.heap.alloc`, `memory.heap.inuse`, `memory.sys` |
+| Heap | `heap.allocs.bytes`, `heap.objects.live`, `heap.goal.bytes` |
+| GC | `gc.cycles.total`, `gc.cpu.seconds` |
+| Scheduler | `goroutines`, `gomaxprocs`, `cgo.calls` |
+| CPU time | `cpu.total.seconds`, `cpu.user.seconds`, `cpu.idle.seconds` |
+
+All values are emitted as absolute gauges. See [docs/runtime_metrics.md](docs/runtime_metrics.md) for the full metric list, semantics, and how to compute rates in your backend.
 
 ## Architecture
 
@@ -468,7 +501,7 @@ See [examples/testing/](examples/testing/) for a complete example.
 - [x] Native OTLP exporter
 - [ ] String interning for attribute keys
 - [ ] Binary serialization optimization
-- [ ] Internal metrics collection
+- [x] Runtime metrics collection (CPU, heap, GC, goroutines)
 
 ## Design Principles
 
