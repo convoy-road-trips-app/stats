@@ -4,7 +4,7 @@
         install-golangci-lint
 
 # Tool versions
-GOLANGCI_LINT_VERSION := v2.7.0
+GOLANGCI_LINT_VERSION := v2.12.2
 
 # Default target
 all: test
