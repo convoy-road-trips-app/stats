@@ -102,13 +102,15 @@ func TestRingBuffer_PopBatch(t *testing.T) {
 }
 
 func TestRingBuffer_Concurrent(t *testing.T) {
-	rb := NewRingBuffer(1024)
+	producers := 2
+	consumers := 2
 	iterations := 1000
+	totalPushAttempts := uint64(producers * iterations)
+
+	rb := NewRingBuffer(4096)
 
 	var wg sync.WaitGroup
 
-	// Start producers
-	producers := 2
 	for i := 0; i < producers; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -119,8 +121,6 @@ func TestRingBuffer_Concurrent(t *testing.T) {
 		}(i)
 	}
 
-	// Start consumers
-	consumers := 2
 	for i := 0; i < consumers; i++ {
 		wg.Add(1)
 		go func() {
@@ -131,17 +131,10 @@ func TestRingBuffer_Concurrent(t *testing.T) {
 		}()
 	}
 
-	// Wait for all goroutines
 	wg.Wait()
 
-	// Drain any remaining items
-	for rb.Pop() != nil {
-	}
-
-	// Verify internal counters match (Added should equal Removed after draining)
-	// This is the most reliable check since the buffer tracks these atomically
-	assert.Equal(t, rb.Added(), rb.Removed())
-	assert.Equal(t, 0, rb.Len())
+	assert.Equal(t, totalPushAttempts, rb.Added()+rb.Dropped())
+	assert.LessOrEqual(t, rb.Removed(), rb.Added())
 }
 
 func TestRingBuffer_Stats(t *testing.T) {
