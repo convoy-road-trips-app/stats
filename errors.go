@@ -33,4 +33,8 @@ var (
 
 	// ErrCardinalityLimit is returned when an observation would add a series beyond MaxCardinality
 	ErrCardinalityLimit = errors.New("stats: metric cardinality limit exceeded")
+
+	// ErrInvalidTagKey is returned when a tag key does not match ^[a-zA-Z_][a-zA-Z0-9_]*$;
+	// the observation is not recorded
+	ErrInvalidTagKey = errors.New("stats: invalid tag key")
 )

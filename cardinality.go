@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,15 +21,14 @@ const (
 type dropReason int
 
 const (
-	dropInvalidKey dropReason = iota
-	dropLabelLimit
+	dropLabelLimit dropReason = iota
 	dropSeriesLimit
 	dropReasonCount
 )
 
 // dropReasonNames is the bounded value set of the drop counter's only attribute.
+// Only D10 drops are counted; invalid tag keys are rejected with ErrInvalidTagKey.
 var dropReasonNames = [dropReasonCount]string{
-	dropInvalidKey:  "invalid_key",
 	dropLabelLimit:  "label_limit",
 	dropSeriesLimit: "series_limit",
 }
@@ -37,7 +37,8 @@ var dropReasonNames = [dropReasonCount]string{
 // distinct attribute sets per metric name. The zero value is ready to use.
 //
 // Hot path for admitted series is two lock-free sync.Map lookups; a per-metric
-// mutex is taken only to admit an unseen series, so there is no global lock.
+// mutex is taken only to reserve, commit or release an unseen series, so there
+// is no global lock.
 type cardinalityLimiter struct {
 	metrics sync.Map // metric name -> *metricSeries
 	pending [dropReasonCount]atomic.Uint64
@@ -46,30 +47,39 @@ type cardinalityLimiter struct {
 
 type metricSeries struct {
 	admitted sync.Map   // attribute.Distinct -> struct{}; lock-free reads
-	mu       sync.Mutex // serializes admission of unseen series
-	count    int        // guarded by mu
+	mu       sync.Mutex // guards count and reserved
+	count    int        // admitted + reserved series
+	reserved map[attribute.Distinct]int
 }
 
-// admit sanitizes m.Attributes in place (drops invalid keys, caps values,
-// keeps the first 10 keys in lexical order) and reports whether m's series is
-// within the limit. A limit <= 0 means the default of 2000.
-func (l *cardinalityLimiter) admit(m *Metric, limit int) bool {
-	kept := m.Attributes[:0]
+// admission is the outcome of admit. An unseen series holds a reserved slot
+// until commit (recorded) or release (recording failed).
+type admission struct {
+	limiter       *cardinalityLimiter
+	series        *metricSeries // nil when the series was already admitted
+	key           attribute.Distinct
+	labelsDropped uint64
+}
+
+// admit rejects invalid tag keys, caps string values, keeps the first 10 keys
+// in lexical order and reserves m's series within the limit (<= 0 means 2000).
+// On success the caller must commit or release the returned admission.
+func (l *cardinalityLimiter) admit(m *Metric, limit int) (admission, error) {
 	for _, kv := range m.Attributes {
 		if !validTagKey(string(kv.Key)) {
-			l.drop(dropInvalidKey, 1)
-			continue
+			return admission{}, fmt.Errorf("%w: %q", ErrInvalidTagKey, kv.Key)
 		}
-		if kv.Value.Type() == attribute.STRING {
-			kv = kv.Key.String(capTagValue(kv.Value.AsString()))
-		}
-		kept = append(kept, kv)
 	}
-	m.Attributes = kept
+	for i, kv := range m.Attributes {
+		if kv.Value.Type() == attribute.STRING {
+			m.Attributes[i] = kv.Key.String(capTagValue(kv.Value.AsString()))
+		}
+	}
 
+	a := admission{limiter: l}
 	set := attribute.NewSet(m.Attributes...) // sorted by key, duplicate keys collapsed
 	if set.Len() > maxLabelsPerObservation {
-		l.drop(dropLabelLimit, uint64(set.Len()-maxLabelsPerObservation))
+		a.labelsDropped = uint64(set.Len() - maxLabelsPerObservation)
 		trimmed := set.ToSlice()[:maxLabelsPerObservation]
 		m.Attributes = append(m.Attributes[:0], trimmed...)
 		set = attribute.NewSet(trimmed...)
@@ -83,24 +93,79 @@ func (l *cardinalityLimiter) admit(m *Metric, limit int) bool {
 		entry, _ = l.metrics.LoadOrStore(m.Name, &metricSeries{})
 	}
 	series := entry.(*metricSeries) // only *metricSeries is stored
-	key := set.Equivalent()
-
-	if _, known := series.admitted.Load(key); known {
-		return true
+	a.key = set.Equivalent()
+	if _, known := series.admitted.Load(a.key); known {
+		return a, nil
 	}
 
 	series.mu.Lock()
 	defer series.mu.Unlock()
-	if _, known := series.admitted.Load(key); known {
-		return true
+	if _, known := series.admitted.Load(a.key); known {
+		return a, nil
 	}
-	if series.count >= limit {
-		l.drop(dropSeriesLimit, 1)
-		return false
+	if series.reserved == nil {
+		series.reserved = make(map[attribute.Distinct]int)
 	}
-	series.admitted.Store(key, struct{}{})
-	series.count++
-	return true
+	if series.reserved[a.key] == 0 {
+		if series.count >= limit {
+			l.drop(dropSeriesLimit, 1)
+			return admission{}, ErrCardinalityLimit
+		}
+		series.count++
+	}
+	series.reserved[a.key]++ // concurrent first observations share one slot
+	a.series = series
+	return a, nil
+}
+
+// admitAndEnqueue validates and admits m, then buffers it. A failed recording
+// neither consumes a series slot nor counts trimmed labels.
+func (p *Pipeline) admitAndEnqueue(m *Metric) error {
+	admission, err := p.cardinality.admit(m, p.cfg.MaxCardinality)
+	if err != nil {
+		return err
+	}
+	if err := p.enqueue(m); err != nil {
+		admission.release()
+		return err
+	}
+	admission.commit()
+	return nil
+}
+
+// commit marks the observation as recorded: the series becomes admitted and
+// trimmed labels are counted.
+func (a admission) commit() {
+	if a.labelsDropped > 0 {
+		a.limiter.drop(dropLabelLimit, a.labelsDropped)
+	}
+	if a.series == nil {
+		return
+	}
+	a.series.mu.Lock()
+	defer a.series.mu.Unlock()
+	a.series.admitted.Store(a.key, struct{}{})
+	a.series.unreserve(a.key)
+}
+
+// release returns a reserved slot after a failed recording, unless another
+// observation of the same series was recorded meanwhile.
+func (a admission) release() {
+	if a.series == nil {
+		return
+	}
+	a.series.mu.Lock()
+	defer a.series.mu.Unlock()
+	a.series.unreserve(a.key)
+	if _, known := a.series.admitted.Load(a.key); !known && a.series.reserved[a.key] == 0 {
+		a.series.count--
+	}
+}
+
+func (s *metricSeries) unreserve(key attribute.Distinct) {
+	if s.reserved[key]--; s.reserved[key] == 0 {
+		delete(s.reserved, key)
+	}
 }
 
 func (l *cardinalityLimiter) drop(reason dropReason, n uint64) {

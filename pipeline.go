@@ -83,15 +83,16 @@ func (p *Pipeline) Record(ctx context.Context, m *Metric) error {
 		return ErrRateLimitExceeded
 	}
 
-	if !p.cardinality.admit(m, p.cfg.MaxCardinality) {
-		return ErrCardinalityLimit
-	}
-
 	// Set timestamp if not set
 	if m.Timestamp.IsZero() {
 		m.Timestamp = time.Now()
 	}
 
+	return p.admitAndEnqueue(m)
+}
+
+// enqueue reserves memory and pushes m to the buffer according to DropStrategy.
+func (p *Pipeline) enqueue(m *Metric) error {
 	// Atomically reserve memory using CAS loop to prevent race condition
 	// This fixes the TOCTOU (time-of-check-time-of-use) race
 	size := m.EstimateSize()

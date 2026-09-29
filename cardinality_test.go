@@ -101,24 +101,111 @@ func TestRecord_treats_identical_attributes_in_different_order_as_one_series(t *
 	require.Zero(t, p.Stats().DroppedLabels)
 }
 
-func TestRecord_rejects_invalid_tag_keys_when_valid_keys_remain(t *testing.T) {
+func TestRecord_rejects_observation_with_invalid_tag_key(t *testing.T) {
+	for _, key := range []string{"http.method", "1abc", "", "a-b", "é"} {
+		t.Run(key, func(t *testing.T) {
+			// Given: room for exactly one series
+			cfg := DefaultConfig()
+			cfg.MaxCardinality = 1
+			p := newUnstartedPipeline(t, cfg)
+
+			// When: an observation carries one invalid key next to valid ones
+			err := p.Record(context.Background(), observation("hits_total",
+				attribute.String("route", "/x"), attribute.String(key, "v")))
+
+			// Then: typed error, nothing buffered, no drop accounting, no series slot used
+			require.ErrorIs(t, err, ErrInvalidTagKey)
+			require.Zero(t, p.buffer.Len())
+			require.Zero(t, p.Stats().DroppedLabels)
+			require.NoError(t, p.Record(context.Background(), observation("hits_total", attribute.String("route", "/y"))))
+		})
+	}
+}
+
+func TestRecord_accepts_valid_tag_keys(t *testing.T) {
 	// Given
 	p := newUnstartedPipeline(t, DefaultConfig())
-	invalid := []string{"http.method", "1abc", "", "a-b", "é"}
-	attrs := []attribute.KeyValue{attribute.String("route", "/x"), attribute.String("_ok9", "y")}
-	for _, key := range invalid {
-		attrs = append(attrs, attribute.String(key, "v"))
-	}
 
 	// When
-	require.NoError(t, p.Record(context.Background(), observation("hits_total", attrs...)))
+	err := p.Record(context.Background(), observation("hits.total",
+		attribute.String("_ok9", "y"), attribute.String("Route_2", "/x")))
+
+	// Then: dotted metric names stay allowed; only tag keys follow the identifier rule
+	require.NoError(t, err)
+	require.ElementsMatch(t, []attribute.KeyValue{
+		attribute.String("_ok9", "y"), attribute.String("Route_2", "/x"),
+	}, bufferedAttributes(t, p))
+}
+
+func TestRecord_releases_series_slot_when_memory_reservation_fails(t *testing.T) {
+	// Given: one series slot and a memory limit too small for any metric
+	cfg := DefaultConfig()
+	cfg.MaxCardinality = 1
+	cfg.MaxMemoryBytes = 1
+	p := newUnstartedPipeline(t, cfg)
+	require.ErrorIs(t, p.Record(context.Background(), observation("jobs_total", attribute.Int("id", 1))), ErrMemoryLimit)
+	cfg.MaxMemoryBytes = DefaultConfig().MaxMemoryBytes
+
+	// When: a different new series arrives once memory is available
+	err := p.Record(context.Background(), observation("jobs_total", attribute.Int("id", 2)))
 
 	// Then
-	got := bufferedAttributes(t, p)
-	require.ElementsMatch(t, []attribute.KeyValue{
-		attribute.String("route", "/x"), attribute.String("_ok9", "y"),
-	}, got)
-	require.Equal(t, uint64(len(invalid)), p.Stats().DroppedLabels)
+	require.NoError(t, err)
+	require.Zero(t, p.Stats().DroppedLabels)
+}
+
+func TestRecord_releases_series_slot_when_buffer_is_full(t *testing.T) {
+	// Given: a one-slot buffer already holding the first admitted series, and room for two series
+	cfg := DefaultConfig()
+	cfg.MaxCardinality = 2
+	cfg.BufferSize = 1
+	p := newUnstartedPipeline(t, cfg)
+	require.NoError(t, p.Record(context.Background(), observation("jobs_total", attribute.Int("id", 1))))
+	require.ErrorIs(t, p.Record(context.Background(), observation("jobs_total", attribute.Int("id", 2))), ErrBufferFull)
+	require.Len(t, p.buffer.PopBatch(1), 1)
+
+	// When: another new series arrives once the buffer has room
+	err := p.Record(context.Background(), observation("jobs_total", attribute.Int("id", 3)))
+
+	// Then
+	require.NoError(t, err)
+}
+
+func TestRecord_counts_trimmed_labels_only_when_observation_is_recorded(t *testing.T) {
+	// Given: a 12-label observation that fails its memory reservation
+	cfg := DefaultConfig()
+	cfg.MaxMemoryBytes = 1
+	p := newUnstartedPipeline(t, cfg)
+
+	// When
+	err := p.Record(context.Background(), observation("hits_total", twelveLabels()...))
+
+	// Then: the failed recording is not a D10 label drop
+	require.ErrorIs(t, err, ErrMemoryLimit)
+	require.Zero(t, p.Stats().DroppedLabels)
+}
+
+func TestRecord_counts_series_overflow_once_per_observation(t *testing.T) {
+	// Given: the only series slot is taken
+	cfg := DefaultConfig()
+	cfg.MaxCardinality = 1
+	p := newUnstartedPipeline(t, cfg)
+	require.NoError(t, p.Record(context.Background(), observation("hits_total", attribute.String("a", "0"))))
+
+	// When: a new 12-label series overflows
+	err := p.Record(context.Background(), observation("hits_total", twelveLabels()...))
+
+	// Then: one dropped series observation, not its trimmed labels as well
+	require.ErrorIs(t, err, ErrCardinalityLimit)
+	require.Equal(t, uint64(1), p.Stats().DroppedLabels)
+}
+
+func twelveLabels() []attribute.KeyValue {
+	attrs := make([]attribute.KeyValue, 0, 12)
+	for _, k := range []string{"l", "c", "k", "a", "j", "e", "b", "i", "d", "h", "g", "f"} {
+		attrs = append(attrs, attribute.String(k, k))
+	}
+	return attrs
 }
 
 func TestRecord_caps_tag_values_at_256_characters(t *testing.T) {
@@ -141,14 +228,9 @@ func TestRecord_caps_tag_values_at_256_characters(t *testing.T) {
 func TestRecord_trims_to_first_10_lexical_keys_when_observation_has_12(t *testing.T) {
 	// Given: 12 keys in non-lexical order
 	p := newUnstartedPipeline(t, DefaultConfig())
-	keys := []string{"l", "c", "k", "a", "j", "e", "b", "i", "d", "h", "g", "f"}
-	attrs := make([]attribute.KeyValue, 0, len(keys))
-	for _, k := range keys {
-		attrs = append(attrs, attribute.String(k, k))
-	}
 
 	// When
-	require.NoError(t, p.Record(context.Background(), observation("hits_total", attrs...)))
+	require.NoError(t, p.Record(context.Background(), observation("hits_total", twelveLabels()...)))
 
 	// Then
 	got := bufferedAttributes(t, p)
@@ -193,6 +275,30 @@ func TestRecord_admits_exactly_MaxCardinality_series_when_producers_race(t *test
 	require.Equal(t, uint64(1100), p.Stats().DroppedLabels)
 }
 
+func TestRecord_shares_one_slot_when_producers_race_on_the_same_new_series(t *testing.T) {
+	// Given: one series slot and 16 producers offering the same unseen series
+	cfg := DefaultConfig()
+	cfg.MaxCardinality = 1
+	p := newUnstartedPipeline(t, cfg)
+	var failed atomic.Int64
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Go(func() {
+			if p.Record(context.Background(), observation("same_total", attribute.String("k", "v"))) != nil {
+				failed.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+
+	// When: a different series arrives
+	err := p.Record(context.Background(), observation("same_total", attribute.String("k", "other")))
+
+	// Then: every racer recorded and exactly one slot was consumed
+	require.Zero(t, failed.Load())
+	require.ErrorIs(t, err, ErrCardinalityLimit)
+}
+
 type capturedPoint struct {
 	name  string
 	value float64
@@ -216,18 +322,19 @@ func TestPipeline_emits_bounded_drop_counter_without_recursive_limiting(t *testi
 	require.NoError(t, p.Start())
 	t.Cleanup(func() { _ = p.Shutdown(context.Background()) })
 
-	// When: two series overflow and one observation carries an invalid key
+	// When: two series overflow, one observation is trimmed, one is rejected for an invalid key
 	require.NoError(t, p.Record(context.Background(), observation("jobs_total", attribute.Int("id", 0))))
 	for i := 1; i <= 2; i++ {
 		require.ErrorIs(t, p.Record(context.Background(), observation("jobs_total", attribute.Int("id", i))), ErrCardinalityLimit)
 	}
-	require.NoError(t, p.Record(context.Background(), observation("jobs_total",
-		attribute.Int("id", 0), attribute.String("bad.key", "x"))))
+	require.NoError(t, p.Record(context.Background(), observation("wide_total", twelveLabels()...)))
+	require.ErrorIs(t, p.Record(context.Background(), observation("jobs_total",
+		attribute.Int("id", 0), attribute.String("bad.key", "x"))), ErrInvalidTagKey)
 
-	// Then: drop counts arrive per bounded reason
+	// Then: drop counts arrive per bounded D10 reason; invalid-key rejections are errors, not drops
 	totals := map[string]float64{}
 	deadline := time.After(5 * time.Second)
-	for totals["series_limit"] < 2 || totals["invalid_key"] < 1 {
+	for totals["series_limit"] < 2 || totals["label_limit"] < 2 {
 		select {
 		case point := <-captured:
 			if point.name != droppedLabelsMetric {
@@ -240,7 +347,7 @@ func TestPipeline_emits_bounded_drop_counter_without_recursive_limiting(t *testi
 			t.Fatalf("drop counter not exported; totals so far: %v", totals)
 		}
 	}
-	require.Equal(t, map[string]float64{"series_limit": 2, "invalid_key": 1}, totals)
+	require.Equal(t, map[string]float64{"series_limit": 2, "label_limit": 2}, totals)
 }
 
 func TestValidateConfig_rejects_negative_MaxCardinality(t *testing.T) {
@@ -286,7 +393,9 @@ func BenchmarkCardinalityAdmit_parallel(b *testing.B) {
 		i := 0
 		for pb.Next() {
 			m.Attributes = append(m.Attributes[:0], routes[i%len(routes)], attribute.String("method", "GET"))
-			limiter.admit(m, defaultMaxCardinality)
+			if a, err := limiter.admit(m, defaultMaxCardinality); err == nil {
+				a.commit()
+			}
 			i++
 		}
 	})
