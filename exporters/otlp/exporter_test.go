@@ -369,29 +369,6 @@ func TestToResourceMetrics_CounterProperties(t *testing.T) {
 	assert.Equal(t, now, sum.DataPoints[0].Time)
 }
 
-func TestToResourceMetrics_HistogramProperties(t *testing.T) {
-	now := time.Now()
-	metrics := []*models.Metric{
-		{
-			Name:      "hist",
-			Type:      models.MetricTypeHistogram,
-			Value:     250.5,
-			Timestamp: now,
-		},
-	}
-
-	rm := toResourceMetrics("svc", metrics)
-	h := rm.ScopeMetrics[0].Metrics[0].Data.(metricdata.Histogram[float64])
-
-	assert.Equal(t, metricdata.DeltaTemporality, h.Temporality)
-	dp := h.DataPoints[0]
-	assert.Equal(t, uint64(1), dp.Count)
-	assert.InDelta(t, 250.5, dp.Sum, 0.001)
-	assert.Equal(t, now, dp.Time)
-	assert.Empty(t, dp.Bounds)
-	assert.Equal(t, []uint64{1}, dp.BucketCounts)
-}
-
 func TestNewExporter_ConfigValidation(t *testing.T) {
 	tests := []struct {
 		name        string

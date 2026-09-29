@@ -96,7 +96,7 @@ func ValidateConfig(c *Config) error {
 		}
 	}
 
-	if c.OTLP != nil && c.OTLP.Enabled {
+	if c.OTLP != nil && (c.OTLP.Enabled || c.OTLP.HistogramBuckets != nil) {
 		if err := c.OTLP.Validate(); err != nil {
 			return fmt.Errorf("otlp config: %w", err)
 		}

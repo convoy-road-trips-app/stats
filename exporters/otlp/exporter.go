@@ -3,6 +3,7 @@ package otlp
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -109,11 +110,24 @@ func (e *Exporter) Export(ctx context.Context, metrics []*models.Metric) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	rm := toResourceMetrics(e.config.ServiceName, metrics)
+	bounds := e.config.HistogramBuckets
+	if bounds == nil {
+		bounds = models.DefaultHistogramBuckets()
+	}
+	rm := toResourceMetricsWithBuckets(e.config.ServiceName, metrics, bounds)
 	return e.otlpExporter.Export(ctx, &rm)
 }
 
 func toResourceMetrics(serviceName string, metrics []*models.Metric) metricdata.ResourceMetrics {
+	return toResourceMetricsWithBuckets(serviceName, metrics, models.DefaultHistogramBuckets())
+}
+
+type histogramKey struct {
+	name       string
+	attributes attribute.Distinct
+}
+
+func toResourceMetricsWithBuckets(serviceName string, metrics []*models.Metric, bounds []float64) metricdata.ResourceMetrics {
 	resName := serviceName
 	if resName == "" {
 		resName = "unknown_service"
@@ -130,6 +144,53 @@ func toResourceMetrics(serviceName string, metrics []*models.Metric) metricdata.
 		},
 		Metrics: make([]metricdata.Metrics, 0, len(metrics)),
 	}
+
+	histograms := make(map[string]metricdata.Histogram[float64])
+	histogramIndexes := make(map[histogramKey]int)
+	for _, m := range metrics {
+		if m.Type != models.MetricTypeHistogram {
+			continue
+		}
+		attrs := attribute.NewSet(m.Attributes...)
+		key := histogramKey{name: m.Name, attributes: attrs.Equivalent()}
+		histogram, exists := histograms[m.Name]
+		if !exists {
+			histogram = metricdata.Histogram[float64]{
+				Temporality: metricdata.DeltaTemporality,
+			}
+		}
+		index, exists := histogramIndexes[key]
+		if !exists {
+			index = len(histogram.DataPoints)
+			histogramIndexes[key] = index
+			histogram.DataPoints = append(histogram.DataPoints, metricdata.HistogramDataPoint[float64]{
+				Attributes:   attrs,
+				Time:         m.Timestamp,
+				Bounds:       append([]float64(nil), bounds...),
+				BucketCounts: make([]uint64, len(bounds)+1),
+				Min:          metricdata.NewExtrema(m.Value),
+				Max:          metricdata.NewExtrema(m.Value),
+			})
+		}
+		point := &histogram.DataPoints[index]
+		point.Count++
+		point.Sum += m.Value
+		if m.Timestamp.After(point.Time) {
+			point.Time = m.Timestamp
+		}
+		min, _ := point.Min.Value()
+		if m.Value < min {
+			point.Min = metricdata.NewExtrema(m.Value)
+		}
+		max, _ := point.Max.Value()
+		if m.Value > max {
+			point.Max = metricdata.NewExtrema(m.Value)
+		}
+		point.BucketCounts[sort.Search(len(bounds), func(i int) bool { return m.Value <= bounds[i] })]++
+		histograms[m.Name] = histogram
+	}
+
+	addedHistograms := make(map[string]struct{}, len(histograms))
 
 	for _, m := range metrics {
 		attrs := attribute.NewSet(m.Attributes...)
@@ -161,21 +222,11 @@ func toResourceMetrics(serviceName string, metrics []*models.Metric) metricdata.
 				},
 			}
 		case models.MetricTypeHistogram:
-			metricData.Data = metricdata.Histogram[float64]{
-				Temporality: metricdata.DeltaTemporality,
-				DataPoints: []metricdata.HistogramDataPoint[float64]{
-					{
-						Attributes:   attrs,
-						Time:         m.Timestamp,
-						Count:        1,
-						Sum:          m.Value,
-						Bounds:       []float64{},
-						BucketCounts: []uint64{1},
-						Min:          metricdata.NewExtrema(m.Value),
-						Max:          metricdata.NewExtrema(m.Value),
-					},
-				},
+			if _, exists := addedHistograms[m.Name]; exists {
+				continue
 			}
+			metricData.Data = histograms[m.Name]
+			addedHistograms[m.Name] = struct{}{}
 		default:
 			continue
 		}

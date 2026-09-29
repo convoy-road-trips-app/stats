@@ -198,3 +198,17 @@ func TestPipeline_ErrorTracking(t *testing.T) {
 		t.Errorf("Expected 0 errors for 'success' exporter, got %d", stats.ExporterErrors["success"])
 	}
 }
+
+func TestWithHistogramBuckets_RejectsEmptyBuckets(t *testing.T) {
+	// Given
+	cfg := DefaultConfig()
+	WithHistogramBuckets([]float64{})(cfg)
+
+	// When
+	err := ValidateConfig(cfg)
+
+	// Then
+	if err == nil {
+		t.Fatal("expected empty OTLP histogram buckets to fail configuration validation")
+	}
+}

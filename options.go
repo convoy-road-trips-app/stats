@@ -129,8 +129,26 @@ func WithOTLP(cfg *OTLPConfig) Option {
 		if cfg == nil {
 			return
 		}
+		if c.OTLP != nil && c.OTLP.HistogramBuckets != nil && cfg.HistogramBuckets == nil {
+			cfg.HistogramBuckets = c.OTLP.HistogramBuckets
+		}
 		cfg.Enabled = true
 		c.OTLP = cfg
+	}
+}
+
+// WithHistogramBuckets sets explicit OTLP histogram bounds. Values use the
+// metric's units; when unset, the OTLP exporter uses the D9 seconds buckets.
+func WithHistogramBuckets(bounds []float64) Option {
+	return func(c *Config) {
+		if c.OTLP == nil {
+			c.OTLP = &OTLPConfig{}
+		}
+		if bounds == nil {
+			c.OTLP.HistogramBuckets = nil
+			return
+		}
+		c.OTLP.HistogramBuckets = append([]float64{}, bounds...)
 	}
 }
 
