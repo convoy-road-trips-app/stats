@@ -46,8 +46,10 @@ func (rb *RingBuffer) Push(item any) bool {
 	}
 
 	for {
-		writePos := rb.writePos.Load()
+		// Load readPos first: readers never pass writePos, so a later writePos
+		// load is >= readPos and writePos-readPos cannot underflow into "full".
 		readPos := rb.readPos.Load()
+		writePos := rb.writePos.Load()
 
 		// Check if buffer is full
 		if writePos-readPos >= rb.capacity {

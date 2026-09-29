@@ -209,3 +209,39 @@ func BenchmarkRingBuffer_PushPop(b *testing.B) {
 		rb.Pop()
 	}
 }
+
+func TestRingBuffer_Push_never_reports_full_below_capacity_while_consumers_pop(t *testing.T) {
+	// Given: far fewer items than capacity, pushed and popped concurrently
+	const producers, perProducer = 8, 20_000
+	rb := NewRingBuffer(producers * perProducer * 2)
+	stop := make(chan struct{})
+	var consumers sync.WaitGroup
+	for range 4 {
+		consumers.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					rb.Pop()
+				}
+			}
+		})
+	}
+
+	// When
+	var producersDone sync.WaitGroup
+	for range producers {
+		producersDone.Go(func() {
+			for i := range perProducer {
+				rb.Push(i)
+			}
+		})
+	}
+	producersDone.Wait()
+	close(stop)
+	consumers.Wait()
+
+	// Then: a stale write position must not be mistaken for a full buffer
+	assert.Equal(t, uint64(0), rb.Dropped())
+}

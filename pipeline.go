@@ -2,6 +2,7 @@ package stats
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -33,6 +34,9 @@ type Pipeline struct {
 	shutdownOnce sync.Once
 	shutdownCh   chan struct{}
 
+	// flushes holds one flush channel per worker started by Start
+	flushes []chan flushRequest
+
 	// Metrics
 	processed   atomic.Uint64
 	dropped     atomic.Uint64
@@ -59,8 +63,9 @@ type Exporter interface {
 
 // Start starts the worker pool
 func (p *Pipeline) Start() error {
-	// Start workers
-	for i := 0; i < p.workers; i++ {
+	p.flushes = make([]chan flushRequest, p.workers)
+	for i := range p.flushes {
+		p.flushes[i] = make(chan flushRequest)
 		p.wg.Add(1)
 		go p.worker(i)
 	}
@@ -163,9 +168,15 @@ func (p *Pipeline) enqueue(m *Metric) error {
 	return nil
 }
 
-// worker processes metrics from the buffer
-func (p *Pipeline) worker(_ int) {
+// worker processes metrics from the buffer. Flush and Shutdown reach it through
+// its flush channel; the channel is nil for a worker started outside Start.
+func (p *Pipeline) worker(id int) {
 	defer p.wg.Done()
+
+	var flushes <-chan flushRequest
+	if id < len(p.flushes) {
+		flushes = p.flushes[id]
+	}
 
 	// Batch buffer for efficient processing
 	batch := make([]*Metric, 0, 100)
@@ -175,18 +186,26 @@ func (p *Pipeline) worker(_ int) {
 	for {
 		select {
 		case <-p.ctx.Done():
-			// Flush remaining batch before exiting
-			batch = p.cardinality.appendDropCounters(batch)
-			if len(batch) > 0 {
-				p.processBatch(batch)
+			// Shutdown ended before this worker drained; exporters may already be
+			// shut down, so the remaining batch is dropped rather than exported late.
+			p.dropped.Add(uint64(len(batch)))
+			for _, m := range batch {
+				ReleaseMetric(m)
 			}
 			return
+
+		case request := <-flushes:
+			request.done <- p.drain(request.ctx, batch)
+			batch = batch[:0]
+			if request.stop {
+				return
+			}
 
 		case <-ticker.C:
 			// Flush on timer
 			batch = p.cardinality.appendDropCounters(batch)
 			if len(batch) > 0 {
-				p.processBatch(batch)
+				p.exportInBackground(batch)
 				batch = batch[:0] // Reset slice, keep capacity
 			}
 
@@ -207,37 +226,46 @@ func (p *Pipeline) worker(_ int) {
 				time.Sleep(time.Millisecond)
 				continue
 			}
-
-			// Convert to metrics and add to batch
-			for _, item := range items {
-				if m, ok := item.(*Metric); ok {
-					batch = append(batch, m)
-					// Update memory usage
-					p.memUsage.Add(-m.EstimateSize())
-				}
-			}
+			batch = p.appendPopped(batch, items)
 
 			// Flush if batch is full
 			if len(batch) >= cap(batch) {
-				p.processBatch(batch)
+				p.exportInBackground(batch)
 				batch = batch[:0]
 			}
 		}
 	}
 }
 
-// processBatch sends a batch of metrics to all exporters
-func (p *Pipeline) processBatch(batch []*Metric) {
-	if len(batch) == 0 {
-		return
+// appendPopped appends ring items to batch and releases their memory reservation.
+func (p *Pipeline) appendPopped(batch []*Metric, items []any) []*Metric {
+	for _, item := range items {
+		if m, ok := item.(*Metric); ok {
+			batch = append(batch, m)
+			p.memUsage.Add(-m.EstimateSize())
+		}
 	}
+	return batch
+}
 
-	// Create a timeout context for exporting
-	ctx, cancel := context.WithTimeout(context.Background(), p.cfg.UDPTimeout)
+// exportInBackground exports a batch the worker loop collected on its own.
+// Failures are counted in Stats; no caller is waiting for them.
+func (p *Pipeline) exportInBackground(batch []*Metric) {
+	ctx, cancel := context.WithTimeout(p.ctx, p.cfg.UDPTimeout)
 	defer cancel()
+	_ = p.processBatch(ctx, batch)
+}
+
+// processBatch sends a batch of metrics to all exporters with ctx and returns
+// their joined errors. The metrics are returned to the pool afterwards.
+func (p *Pipeline) processBatch(ctx context.Context, batch []*Metric) error {
+	if len(batch) == 0 {
+		return nil
+	}
 
 	// Send to each exporter in parallel
 	var wg sync.WaitGroup
+	errs := make([]error, len(p.exporters))
 
 	for i, exporter := range p.exporters {
 		wg.Add(1)
@@ -251,15 +279,14 @@ func (p *Pipeline) processBatch(batch []*Metric) {
 					p.exporterErrors[idx].Add(1)
 					// In a real app, we might log the panic stack trace here
 					fmt.Printf("panic in exporter %s: %v\n", exp.Name(), r)
+					errs[idx] = fmt.Errorf("exporter %s panicked: %v", exp.Name(), r)
 				}
 			}()
 
 			if err := exp.Export(ctx, batch); err != nil {
 				p.errors.Add(1)
 				p.exporterErrors[idx].Add(1)
-				// Log error but continue with other exporters
-				// In production, use a proper logger
-				_ = err
+				errs[idx] = fmt.Errorf("exporter %s: %w", exp.Name(), err)
 			}
 		}(i, exporter)
 	}
@@ -274,45 +301,7 @@ func (p *Pipeline) processBatch(batch []*Metric) {
 	for _, m := range batch {
 		ReleaseMetric(m)
 	}
-}
-
-// Shutdown gracefully shuts down the pipeline
-func (p *Pipeline) Shutdown(ctx context.Context) error {
-	var shutdownErr error
-
-	p.shutdownOnce.Do(func() {
-		// Signal shutdown
-		close(p.shutdownCh)
-
-		// Cancel worker context
-		p.cancel()
-
-		// Wait for workers with timeout
-		done := make(chan struct{})
-		go func() {
-			p.wg.Wait()
-			close(done)
-		}()
-
-		select {
-		case <-done:
-			// Clean shutdown
-		case <-ctx.Done():
-			// Timeout occurred
-			shutdownErr = fmt.Errorf("pipeline shutdown timeout: %w", ctx.Err())
-		}
-
-		// Shutdown all exporters
-		for _, exporter := range p.exporters {
-			if err := exporter.Shutdown(ctx); err != nil {
-				if shutdownErr == nil {
-					shutdownErr = fmt.Errorf("exporter %s shutdown: %w", exporter.Name(), err)
-				}
-			}
-		}
-	})
-
-	return shutdownErr
+	return errors.Join(errs...)
 }
 
 // Stats returns pipeline statistics

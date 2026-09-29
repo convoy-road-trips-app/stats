@@ -175,6 +175,9 @@ func WithOTLP(cfg *OTLPConfig) Option {
 			if cfg.DeploymentEnvironment == "" {
 				cfg.DeploymentEnvironment = c.OTLP.DeploymentEnvironment
 			}
+			if cfg.Retry == nil {
+				cfg.Retry = c.OTLP.Retry
+			}
 		}
 		cfg.Enabled = true
 		c.OTLP = cfg
@@ -193,6 +196,18 @@ func WithHistogramBuckets(bounds []float64) Option {
 			return
 		}
 		c.OTLP.HistogramBuckets = append([]float64{}, bounds...)
+	}
+}
+
+// WithOTLPRetry retries retryable OTLP export failures with exponential backoff
+// from initial up to maxInterval, for at most maxElapsed per export. Retries
+// also stop when the export context ends.
+func WithOTLPRetry(initial, maxInterval, maxElapsed time.Duration) Option {
+	return func(c *Config) {
+		if c.OTLP == nil {
+			c.OTLP = &OTLPConfig{}
+		}
+		c.OTLP.Retry = &OTLPRetry{InitialInterval: initial, MaxInterval: maxInterval, MaxElapsedTime: maxElapsed}
 	}
 }
 

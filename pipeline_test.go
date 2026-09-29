@@ -82,7 +82,7 @@ func TestPipeline_ParallelExport(t *testing.T) {
 
 	// Measure time to process batch
 	start := time.Now()
-	p.processBatch(batch)
+	_ = p.processBatch(context.Background(), batch)
 	duration := time.Since(start)
 
 	// Verification
@@ -140,7 +140,7 @@ func TestPipeline_PanicRecovery(t *testing.T) {
 				t.Errorf("Pipeline panicked: %v", r)
 			}
 		}()
-		p.processBatch(batch)
+		_ = p.processBatch(context.Background(), batch)
 	}()
 
 	// Check error counts
@@ -182,7 +182,7 @@ func TestPipeline_ErrorTracking(t *testing.T) {
 	}
 
 	batch := []*Metric{{Name: "test", Value: 1}}
-	p.processBatch(batch)
+	_ = p.processBatch(context.Background(), batch)
 
 	// Check global errors
 	if p.errors.Load() != 1 {

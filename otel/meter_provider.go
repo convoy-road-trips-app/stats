@@ -80,11 +80,10 @@ func (mp *MeterProvider) Shutdown(ctx context.Context) error {
 	return shutdownErr
 }
 
-// ForceFlush flushes any pending metrics
+// ForceFlush exports every observation recorded before the call and returns
+// once it has been exported, or with ctx's error once ctx is done.
 func (mp *MeterProvider) ForceFlush(ctx context.Context) error {
-	// Our pipeline is already async and flushes automatically
-	// This is a no-op for compatibility
-	return nil
+	return mp.client.Flush(ctx)
 }
 
 // WithResource returns a MeterProviderOption that configures the resource

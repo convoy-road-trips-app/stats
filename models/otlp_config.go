@@ -42,6 +42,28 @@ type OTLPConfig struct {
 	Protocol              OTLPProtocol  // "grpc" (default) or "http"
 	ExportTimeout         time.Duration // Per-export deadline; defaults to 10s if zero
 	HistogramBuckets      []float64     // Explicit histogram bounds; defaults to the D9 seconds buckets when nil
+	Retry                 *OTLPRetry    // Retry policy for retryable export failures; nil keeps the SDK default
+}
+
+// OTLPRetry is an exponential-backoff policy for retryable OTLP export
+// failures. Every export is also bounded by its context and ExportTimeout.
+type OTLPRetry struct {
+	InitialInterval time.Duration // Wait after the first failure
+	MaxInterval     time.Duration // Upper bound for a single wait
+	MaxElapsedTime  time.Duration // Total retry budget per export; must be positive
+}
+
+// Validate rejects retry policies that could wait forever or never back off.
+func (r *OTLPRetry) Validate() error {
+	switch {
+	case r.InitialInterval <= 0:
+		return fmt.Errorf("retry initial interval must be positive")
+	case r.MaxInterval < r.InitialInterval:
+		return fmt.Errorf("retry max interval must not be less than the initial interval")
+	case r.MaxElapsedTime <= 0:
+		return fmt.Errorf("retry max elapsed time must be positive")
+	}
+	return nil
 }
 
 // DefaultHistogramBuckets returns the default explicit histogram bounds in seconds.
@@ -60,6 +82,11 @@ func (c *OTLPConfig) Validate() error {
 	for i, bound := range c.HistogramBuckets {
 		if math.IsNaN(bound) || math.IsInf(bound, 0) || (i > 0 && bound <= c.HistogramBuckets[i-1]) {
 			return fmt.Errorf("histogram buckets must be strictly increasing")
+		}
+	}
+	if c.Retry != nil {
+		if err := c.Retry.Validate(); err != nil {
+			return err
 		}
 	}
 	if !c.Enabled {

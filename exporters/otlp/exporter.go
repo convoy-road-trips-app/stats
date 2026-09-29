@@ -73,6 +73,11 @@ func newGRPCExporter(config *models.OTLPConfig) (*otlpmetricgrpc.Exporter, error
 	if len(config.Headers) > 0 {
 		opts = append(opts, otlpmetricgrpc.WithHeaders(config.Headers))
 	}
+	if r := config.Retry; r != nil {
+		opts = append(opts, otlpmetricgrpc.WithRetry(otlpmetricgrpc.RetryConfig{
+			Enabled: true, InitialInterval: r.InitialInterval, MaxInterval: r.MaxInterval, MaxElapsedTime: r.MaxElapsedTime,
+		}))
+	}
 
 	exp, err := otlpmetricgrpc.New(context.Background(), opts...)
 	if err != nil {
@@ -90,6 +95,11 @@ func newHTTPExporter(config *models.OTLPConfig) (*otlpmetrichttp.Exporter, error
 	}
 	if len(config.Headers) > 0 {
 		opts = append(opts, otlpmetrichttp.WithHeaders(config.Headers))
+	}
+	if r := config.Retry; r != nil {
+		opts = append(opts, otlpmetrichttp.WithRetry(otlpmetrichttp.RetryConfig{
+			Enabled: true, InitialInterval: r.InitialInterval, MaxInterval: r.MaxInterval, MaxElapsedTime: r.MaxElapsedTime,
+		}))
 	}
 
 	exp, err := otlpmetrichttp.New(context.Background(), opts...)

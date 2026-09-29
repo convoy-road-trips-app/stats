@@ -229,39 +229,6 @@ func (c *Client) Stats() ClientStats {
 	}
 }
 
-// Shutdown gracefully shuts down the client
-func (c *Client) Shutdown(ctx context.Context) error {
-	var shutdownErr error
-
-	c.shutdownOnce.Do(func() {
-		c.mu.Lock()
-		c.closed = true
-		c.mu.Unlock()
-
-		if c.collector != nil {
-			if err := c.collector.Stop(ctx); err != nil {
-				shutdownErr = fmt.Errorf("stop runtime collector: %w", err)
-			}
-		}
-
-		// Shutdown pipeline
-		if err := c.pipeline.Shutdown(ctx); err != nil {
-			if shutdownErr == nil {
-				shutdownErr = err
-			}
-		}
-	})
-
-	return shutdownErr
-}
-
-// Close closes the client with a default 5-second timeout
-func (c *Client) Close() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return c.Shutdown(ctx)
-}
-
 // ClientStats contains statistics about the client
 type ClientStats struct {
 	ServiceName string
