@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/convoy-road-trips-app/stats/models"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // Option is a function that configures the stats client
@@ -13,6 +14,30 @@ type Option func(*Config)
 func WithServiceName(name string) Option {
 	return func(c *Config) {
 		c.ServiceName = name
+		if c.OTLP == nil {
+			c.OTLP = &OTLPConfig{}
+		}
+		c.OTLP.ServiceName = name
+	}
+}
+
+// WithTemporality sets the temporality used for OTLP sums and histograms.
+func WithTemporality(temporality Temporality) Option {
+	return func(c *Config) {
+		if c.OTLP == nil {
+			c.OTLP = &OTLPConfig{}
+		}
+		c.OTLP.Temporality = temporality
+	}
+}
+
+// WithOTLPResourceAttributes merges resource attributes into the OTLP exporter configuration.
+func WithOTLPResourceAttributes(attrs ...attribute.KeyValue) Option {
+	return func(c *Config) {
+		if c.OTLP == nil {
+			c.OTLP = &OTLPConfig{}
+		}
+		c.OTLP.ResourceAttributes = append(c.OTLP.ResourceAttributes, attrs...)
 	}
 }
 
@@ -20,6 +45,10 @@ func WithServiceName(name string) Option {
 func WithEnvironment(env string) Option {
 	return func(c *Config) {
 		c.Environment = env
+		if c.OTLP == nil {
+			c.OTLP = &OTLPConfig{}
+		}
+		c.OTLP.DeploymentEnvironment = env
 	}
 }
 
@@ -131,6 +160,18 @@ func WithOTLP(cfg *OTLPConfig) Option {
 		}
 		if c.OTLP != nil && c.OTLP.HistogramBuckets != nil && cfg.HistogramBuckets == nil {
 			cfg.HistogramBuckets = c.OTLP.HistogramBuckets
+		}
+		if c.OTLP != nil {
+			if cfg.Temporality == "" {
+				cfg.Temporality = c.OTLP.Temporality
+			}
+			cfg.ResourceAttributes = append(cfg.ResourceAttributes, c.OTLP.ResourceAttributes...)
+			if cfg.ServiceName == "" {
+				cfg.ServiceName = c.OTLP.ServiceName
+			}
+			if cfg.DeploymentEnvironment == "" {
+				cfg.DeploymentEnvironment = c.OTLP.DeploymentEnvironment
+			}
 		}
 		cfg.Enabled = true
 		c.OTLP = cfg

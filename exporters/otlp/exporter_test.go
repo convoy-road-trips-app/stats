@@ -121,8 +121,8 @@ func TestToResourceMetrics(t *testing.T) {
 	// Verify Resource
 	assert.NotNil(t, rm.Resource)
 	attrs := rm.Resource.Attributes()
-	assert.Len(t, attrs, 1)
-	assert.Equal(t, attribute.String("service.name", "my-service"), attrs[0])
+	assert.Len(t, attrs, 3)
+	assertAttributeValue(t, attribute.NewSet(attrs...), "service.name", "my-service")
 
 	// Verify ScopeMetrics
 	assert.Len(t, rm.ScopeMetrics, 1)
@@ -137,7 +137,7 @@ func TestToResourceMetrics(t *testing.T) {
 	assert.Equal(t, "test_counter", counter.Name)
 	sum, ok := counter.Data.(metricdata.Sum[float64])
 	assert.True(t, ok)
-	assert.Equal(t, metricdata.DeltaTemporality, sum.Temporality)
+	assert.Equal(t, metricdata.CumulativeTemporality, sum.Temporality)
 	assert.True(t, sum.IsMonotonic)
 	assert.Len(t, sum.DataPoints, 1)
 	assert.InDelta(t, 42.0, sum.DataPoints[0].Value, 0.001)
@@ -159,7 +159,7 @@ func TestToResourceMetrics(t *testing.T) {
 	assert.Equal(t, "test_histogram", hist.Name)
 	h, ok := hist.Data.(metricdata.Histogram[float64])
 	assert.True(t, ok)
-	assert.Equal(t, metricdata.DeltaTemporality, h.Temporality)
+	assert.Equal(t, metricdata.CumulativeTemporality, h.Temporality)
 	assert.Len(t, h.DataPoints, 1)
 	assert.Equal(t, uint64(1), h.DataPoints[0].Count)
 	assert.InDelta(t, 123.0, h.DataPoints[0].Sum, 0.001)
@@ -225,6 +225,10 @@ func TestExporter_Shutdown_CancelledContext(t *testing.T) {
 }
 
 func TestToResourceMetrics_EmptyServiceName(t *testing.T) {
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "")
+	t.Setenv("OTEL_SERVICE_NAME", "")
+	t.Setenv("DEPLOYMENT_ENVIRONMENT", "")
+	t.Setenv("SERVICE_VERSION", "")
 	now := time.Now()
 	metrics := []*models.Metric{
 		{
@@ -238,8 +242,11 @@ func TestToResourceMetrics_EmptyServiceName(t *testing.T) {
 	rm := toResourceMetrics("", metrics)
 
 	attrs := rm.Resource.Attributes()
-	assert.Len(t, attrs, 1)
-	assert.Equal(t, attribute.String("service.name", "unknown_service"), attrs[0])
+	assert.Len(t, attrs, 3)
+	resourceAttrs := attribute.NewSet(attrs...)
+	assertAttributeValue(t, resourceAttrs, "service.name", "unknown_service")
+	assertAttributeValue(t, resourceAttrs, "deployment.environment", "unknown")
+	assertAttributeValue(t, resourceAttrs, "service.version", "unknown")
 }
 
 func TestToResourceMetrics_EmptyMetrics(t *testing.T) {
@@ -364,7 +371,7 @@ func TestToResourceMetrics_CounterProperties(t *testing.T) {
 	sum := rm.ScopeMetrics[0].Metrics[0].Data.(metricdata.Sum[float64])
 
 	assert.True(t, sum.IsMonotonic, "counters should be monotonic")
-	assert.Equal(t, metricdata.DeltaTemporality, sum.Temporality)
+	assert.Equal(t, metricdata.CumulativeTemporality, sum.Temporality)
 	assert.InDelta(t, 7.5, sum.DataPoints[0].Value, 0.001)
 	assert.Equal(t, now, sum.DataPoints[0].Time)
 }

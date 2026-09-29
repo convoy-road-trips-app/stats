@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -11,7 +12,6 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
-	"go.opentelemetry.io/otel/sdk/resource"
 
 	"github.com/convoy-road-trips-app/stats/models"
 )
@@ -25,6 +25,8 @@ type otlpMetricExporter interface {
 type Exporter struct {
 	config       *models.OTLPConfig
 	otlpExporter otlpMetricExporter
+	mu           sync.Mutex
+	series       map[histogramKey]seriesState
 }
 
 // NewExporter creates a new OTLP exporter
@@ -114,8 +116,15 @@ func (e *Exporter) Export(ctx context.Context, metrics []*models.Metric) error {
 	if bounds == nil {
 		bounds = models.DefaultHistogramBuckets()
 	}
-	rm := toResourceMetricsWithBuckets(e.config.ServiceName, metrics, bounds)
-	return e.otlpExporter.Export(ctx, &rm)
+	rm := toResourceMetricsWithConfig(e.config, metrics, bounds)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	next := e.accumulate(&rm)
+	err := e.otlpExporter.Export(ctx, &rm)
+	// Keep observations even after a failed send so the next cumulative export
+	// includes the interval that the collector did not receive.
+	e.series = next
+	return err
 }
 
 func toResourceMetrics(serviceName string, metrics []*models.Metric) metricdata.ResourceMetrics {
@@ -128,15 +137,15 @@ type histogramKey struct {
 }
 
 func toResourceMetricsWithBuckets(serviceName string, metrics []*models.Metric, bounds []float64) metricdata.ResourceMetrics {
-	resName := serviceName
-	if resName == "" {
-		resName = "unknown_service"
-	}
+	return toResourceMetricsWithConfig(&models.OTLPConfig{ServiceName: serviceName}, metrics, bounds)
+}
 
-	res := resource.NewWithAttributes(
-		"",
-		attribute.String("service.name", resName),
-	)
+func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Metric, bounds []float64) metricdata.ResourceMetrics {
+	res := resourceForConfig(config)
+	temporality := config.Temporality
+	if temporality == "" {
+		temporality = models.Cumulative
+	}
 
 	scopeMetrics := metricdata.ScopeMetrics{
 		Scope: instrumentation.Scope{
@@ -156,7 +165,7 @@ func toResourceMetricsWithBuckets(serviceName string, metrics []*models.Metric, 
 		histogram, exists := histograms[m.Name]
 		if !exists {
 			histogram = metricdata.Histogram[float64]{
-				Temporality: metricdata.DeltaTemporality,
+				Temporality: metricTemporality(temporality),
 			}
 		}
 		index, exists := histogramIndexes[key]
@@ -201,7 +210,7 @@ func toResourceMetricsWithBuckets(serviceName string, metrics []*models.Metric, 
 		switch m.Type {
 		case models.MetricTypeCounter:
 			metricData.Data = metricdata.Sum[float64]{
-				Temporality: metricdata.DeltaTemporality,
+				Temporality: metricTemporality(temporality),
 				IsMonotonic: true,
 				DataPoints: []metricdata.DataPoint[float64]{
 					{

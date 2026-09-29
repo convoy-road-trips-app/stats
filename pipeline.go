@@ -7,10 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/convoy-road-trips-app/stats/exporters/cloudwatch"
-	"github.com/convoy-road-trips-app/stats/exporters/datadog"
-	"github.com/convoy-road-trips-app/stats/exporters/otlp"
-	"github.com/convoy-road-trips-app/stats/exporters/prometheus"
 	"github.com/convoy-road-trips-app/stats/transport"
 )
 
@@ -56,80 +52,6 @@ type Exporter interface {
 	Name() string
 	Export(ctx context.Context, metrics []*Metric) error
 	Shutdown(ctx context.Context) error
-}
-
-// NewPipeline creates a new metric processing pipeline
-func NewPipeline(cfg *Config) (*Pipeline, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("%w: config is nil", ErrInvalidConfig)
-	}
-
-	if err := ValidateConfig(cfg); err != nil {
-		return nil, err
-	}
-
-	// Create exporters based on configuration
-	exporters := make([]Exporter, 0, 3)
-
-	// Create Datadog exporter if enabled
-	if cfg.Datadog != nil && cfg.Datadog.Enabled {
-		ddExporter, err := datadog.NewExporter(cfg.Datadog)
-		if err != nil {
-			return nil, fmt.Errorf("create datadog exporter: %w", err)
-		}
-		exporters = append(exporters, ddExporter)
-	}
-
-	// Create Prometheus exporter if enabled
-	if cfg.Prometheus != nil && cfg.Prometheus.Enabled {
-		promExporter, err := prometheus.NewExporter(cfg.Prometheus)
-		if err != nil {
-			return nil, fmt.Errorf("create prometheus exporter: %w", err)
-		}
-		exporters = append(exporters, promExporter)
-	}
-
-	// Create CloudWatch exporter if enabled
-	if cfg.CloudWatch != nil && cfg.CloudWatch.Enabled {
-		cwExporter, err := cloudwatch.NewExporter(cfg.CloudWatch)
-		if err != nil {
-			return nil, fmt.Errorf("create cloudwatch exporter: %w", err)
-		}
-		exporters = append(exporters, cwExporter)
-	}
-
-	if cfg.OTLP != nil && cfg.OTLP.Enabled {
-		if cfg.OTLP.ServiceName == "" {
-			cfg.OTLP.ServiceName = cfg.ServiceName
-		}
-		otlpExporter, err := otlp.NewExporter(cfg.OTLP)
-		if err != nil {
-			return nil, fmt.Errorf("create otlp exporter: %w", err)
-		}
-		exporters = append(exporters, otlpExporter)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Create rate limiter if configured
-	var rateLimiter *RateLimiter
-	if cfg.RateLimitPerSecond > 0 {
-		rateLimiter = NewRateLimiter(cfg.RateLimitPerSecond, cfg.RateLimitBurst)
-	}
-
-	p := &Pipeline{
-		cfg:            cfg,
-		buffer:         transport.NewRingBuffer(cfg.BufferSize),
-		workers:        cfg.Workers,
-		exporters:      exporters,
-		exporterErrors: make([]atomic.Uint64, len(exporters)),
-		rateLimiter:    rateLimiter,
-		ctx:            ctx,
-		cancel:         cancel,
-		shutdownCh:     make(chan struct{}),
-	}
-
-	return p, nil
 }
 
 // Start starts the worker pool

@@ -28,7 +28,7 @@ func TestToResourceMetrics_HistogramProperties(t *testing.T) {
 
 	// Then
 	histogram := rm.ScopeMetrics[0].Metrics[0].Data.(metricdata.Histogram[float64])
-	assert.Equal(t, metricdata.DeltaTemporality, histogram.Temporality)
+	assert.Equal(t, metricdata.CumulativeTemporality, histogram.Temporality)
 	dp := histogram.DataPoints[0]
 	assert.Equal(t, uint64(1), dp.Count)
 	assert.InDelta(t, 250.5, dp.Sum, 0.001)

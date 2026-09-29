@@ -23,6 +23,8 @@ type (
 	RuntimeMetricsConfig = models.RuntimeMetricsConfig
 	// OTLPProtocol selects gRPC or HTTP transport
 	OTLPProtocol = models.OTLPProtocol
+	// Temporality selects cumulative or delta metric export.
+	Temporality = models.Temporality
 	// DropStrategy is the drop strategy enum
 	DropStrategy = models.DropStrategy
 )
@@ -37,6 +39,10 @@ const (
 	OTLPProtocolGRPC = models.OTLPProtocolGRPC
 	// OTLPProtocolHTTP selects HTTP/protobuf transport (port 4318)
 	OTLPProtocolHTTP = models.OTLPProtocolHTTP
+	// Cumulative exports cumulative metric values.
+	Cumulative = models.Cumulative
+	// Delta exports metric values since the previous collection.
+	Delta = models.Delta
 )
 
 // DefaultConfig returns a configuration with sensible defaults
@@ -96,7 +102,7 @@ func ValidateConfig(c *Config) error {
 		}
 	}
 
-	if c.OTLP != nil && (c.OTLP.Enabled || c.OTLP.HistogramBuckets != nil) {
+	if c.OTLP != nil && (c.OTLP.Enabled || c.OTLP.HistogramBuckets != nil || c.OTLP.Temporality != "" || len(c.OTLP.ResourceAttributes) > 0) {
 		if err := c.OTLP.Validate(); err != nil {
 			return fmt.Errorf("otlp config: %w", err)
 		}

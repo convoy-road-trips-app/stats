@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // OTLPProtocol selects the transport for the OTLP exporter.
@@ -16,16 +18,30 @@ const (
 	OTLPProtocolHTTP OTLPProtocol = "http"
 )
 
+// Temporality selects whether OTLP sums and histograms are exported as cumulative or delta.
+type Temporality string
+
+const (
+	// Cumulative exports values accumulated since the start of the process.
+	Cumulative Temporality = "cumulative"
+	// Delta exports values accumulated since the previous collection.
+	Delta Temporality = "delta"
+)
+
 // OTLPConfig configures the OTLP exporter
 type OTLPConfig struct {
-	Enabled          bool
-	Endpoint         string            // e.g., "localhost:4317" for gRPC, "localhost:4318" for HTTP
-	Insecure         bool              // Use insecure connection (no TLS)
-	Headers          map[string]string // Additional headers sent with each request
-	ServiceName      string
-	Protocol         OTLPProtocol  // "grpc" (default) or "http"
-	ExportTimeout    time.Duration // Per-export deadline; defaults to 10s if zero
-	HistogramBuckets []float64     // Explicit histogram bounds; defaults to the D9 seconds buckets when nil
+	Enabled               bool
+	Endpoint              string            // e.g., "localhost:4317" for gRPC, "localhost:4318" for HTTP
+	Insecure              bool              // Use insecure connection (no TLS)
+	Headers               map[string]string // Additional headers sent with each request
+	ServiceName           string
+	DeploymentEnvironment string
+	ServiceVersion        string
+	ResourceAttributes    []attribute.KeyValue
+	Temporality           Temporality   // "cumulative" (default) or "delta"
+	Protocol              OTLPProtocol  // "grpc" (default) or "http"
+	ExportTimeout         time.Duration // Per-export deadline; defaults to 10s if zero
+	HistogramBuckets      []float64     // Explicit histogram bounds; defaults to the D9 seconds buckets when nil
 }
 
 // DefaultHistogramBuckets returns the default explicit histogram bounds in seconds.
@@ -35,6 +51,9 @@ func DefaultHistogramBuckets() []float64 {
 
 // Validate validates the OTLP configuration
 func (c *OTLPConfig) Validate() error {
+	if c.Temporality != "" && c.Temporality != Cumulative && c.Temporality != Delta {
+		return fmt.Errorf("unsupported temporality %q (use %q or %q)", c.Temporality, Cumulative, Delta)
+	}
 	if c.HistogramBuckets != nil && len(c.HistogramBuckets) == 0 {
 		return fmt.Errorf("histogram buckets must not be empty")
 	}
@@ -56,7 +75,6 @@ func (c *OTLPConfig) Validate() error {
 	default:
 		return fmt.Errorf("unsupported protocol %q (use %q or %q)", c.Protocol, OTLPProtocolGRPC, OTLPProtocolHTTP)
 	}
-
 	return nil
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -19,7 +18,8 @@ type MeterProvider struct {
 	client *stats.Client
 
 	// Resource describes the entity producing metrics
-	resource *resource.Resource
+	resource      *resource.Resource
+	clientOptions []stats.Option
 
 	// Meters created by this provider
 	meters map[string]*Meter
@@ -34,18 +34,11 @@ type MeterProviderOption func(*MeterProvider) error
 
 // NewMeterProvider creates a new OTel MeterProvider backed by the stats library
 func NewMeterProvider(opts ...MeterProviderOption) (*MeterProvider, error) {
-	// Create underlying stats client with OTel mode enabled
-	client, err := stats.NewClient(
-		stats.WithOTelMode(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create stats client: %w", err)
-	}
-
+	clientOptions := []stats.Option{stats.WithOTelMode()}
 	mp := &MeterProvider{
-		client:   client,
-		resource: resource.Default(),
-		meters:   make(map[string]*Meter),
+		resource:      resource.Empty(),
+		clientOptions: clientOptions,
+		meters:        make(map[string]*Meter),
 	}
 
 	// Apply options
@@ -54,7 +47,9 @@ func NewMeterProvider(opts ...MeterProviderOption) (*MeterProvider, error) {
 			return nil, err
 		}
 	}
-
+	if err := mp.replaceClient(); err != nil {
+		return nil, err
+	}
 	return mp, nil
 }
 
@@ -95,7 +90,14 @@ func (mp *MeterProvider) ForceFlush(ctx context.Context) error {
 // WithResource returns a MeterProviderOption that configures the resource
 func WithResource(res *resource.Resource) MeterProviderOption {
 	return func(mp *MeterProvider) error {
-		mp.resource = res
+		if res == nil {
+			return fmt.Errorf("meter resource is nil")
+		}
+		merged, err := resource.Merge(mp.resource, res)
+		if err != nil {
+			return fmt.Errorf("merge meter resource: %w", err)
+		}
+		mp.resource = merged
 		return nil
 	}
 }
@@ -103,20 +105,18 @@ func WithResource(res *resource.Resource) MeterProviderOption {
 // WithStatsOptions returns a MeterProviderOption that configures the underlying stats client
 func WithStatsOptions(opts ...stats.Option) MeterProviderOption {
 	return func(mp *MeterProvider) error {
-		// Shutdown old client if it exists to prevent resource leaks
-		if mp.client != nil {
-			// Use background context with timeout for cleanup
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = mp.client.Shutdown(ctx)
-		}
-
-		// Re-create the client with new options
-		client, err := stats.NewClient(opts...)
-		if err != nil {
-			return err
-		}
-		mp.client = client
+		mp.clientOptions = append(mp.clientOptions, opts...)
 		return nil
 	}
+}
+
+func (mp *MeterProvider) replaceClient() error {
+	clientOptions := append([]stats.Option(nil), mp.clientOptions...)
+	clientOptions = append(clientOptions, stats.WithOTLPResourceAttributes(mp.resource.Attributes()...))
+	client, err := stats.NewClient(clientOptions...)
+	if err != nil {
+		return fmt.Errorf("create stats client: %w", err)
+	}
+	mp.client = client
+	return nil
 }

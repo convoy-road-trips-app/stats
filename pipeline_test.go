@@ -212,3 +212,24 @@ func TestWithHistogramBuckets_RejectsEmptyBuckets(t *testing.T) {
 		t.Fatal("expected empty OTLP histogram buckets to fail configuration validation")
 	}
 }
+
+func TestNewPipeline_defaultsOTLPServiceName_fromStatsConfig(t *testing.T) {
+	// Given
+	config := DefaultConfig()
+	config.ServiceName = "checkout-api"
+	config.OTLP = &OTLPConfig{Enabled: true, Endpoint: "localhost:4317", Insecure: true}
+
+	// When
+	pipeline, err := NewPipeline(config)
+	if err != nil {
+		t.Fatalf("create pipeline: %v", err)
+	}
+	if err := pipeline.Shutdown(context.Background()); err != nil {
+		t.Fatalf("shutdown pipeline: %v", err)
+	}
+
+	// Then
+	if config.OTLP.ServiceName != config.ServiceName {
+		t.Fatalf("OTLP service name = %q, want stats service name %q", config.OTLP.ServiceName, config.ServiceName)
+	}
+}
