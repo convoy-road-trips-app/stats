@@ -21,5 +21,7 @@ type Recorder interface {
 }
 
 // Ensure implementations satisfy the interface
-var _ Recorder = (*Client)(nil)
-var _ Recorder = (*NoOpClient)(nil)
+var (
+	_ Recorder = (*Client)(nil)
+	_ Recorder = (*NoOpClient)(nil)
+)

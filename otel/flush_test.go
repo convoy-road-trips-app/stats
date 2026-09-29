@@ -52,7 +52,6 @@ func TestMeterProvider_ForceFlush_delivers_buffered_observations_before_returnin
 
 	// When
 	err = provider.ForceFlush(context.Background())
-
 	// Then: the export has already reached the receiver
 	if err != nil {
 		t.Fatalf("ForceFlush: %v", err)

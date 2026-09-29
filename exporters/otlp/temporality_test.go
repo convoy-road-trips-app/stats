@@ -137,8 +137,10 @@ func TestExporter_cumulative_separates_attribute_series(t *testing.T) {
 	collector := &collectingExporter{}
 	exporter := &Exporter{config: &models.OTLPConfig{Enabled: true}, otlpExporter: collector}
 	series := func(route string, value float64) *models.Metric {
-		return &models.Metric{Name: "requests_total", Type: models.MetricTypeCounter, Value: value,
-			Timestamp: start, Attributes: []attribute.KeyValue{attribute.String("route", route)}}
+		return &models.Metric{
+			Name: "requests_total", Type: models.MetricTypeCounter, Value: value,
+			Timestamp: start, Attributes: []attribute.KeyValue{attribute.String("route", route)},
+		}
 	}
 
 	// When
