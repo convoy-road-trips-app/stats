@@ -87,7 +87,10 @@ func WithMaxMemoryBytes(bytes int64) Option {
 	}
 }
 
-// WithMaxCardinality sets the maximum unique attribute combinations
+// WithMaxCardinality sets the maximum distinct attribute sets (series) per
+// metric name per process. Unseen series beyond the limit are dropped and
+// counted in telemetry_dropped_labels_total; admitted series keep recording.
+// Zero means the default of 2000; negative values are rejected.
 func WithMaxCardinality(cardinality int) Option {
 	return func(c *Config) {
 		c.MaxCardinality = cardinality

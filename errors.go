@@ -30,4 +30,7 @@ var (
 
 	// ErrRateLimitExceeded is returned when rate limit is exceeded
 	ErrRateLimitExceeded = errors.New("stats: rate limit exceeded")
+
+	// ErrCardinalityLimit is returned when an observation would add a series beyond MaxCardinality
+	ErrCardinalityLimit = errors.New("stats: metric cardinality limit exceeded")
 )

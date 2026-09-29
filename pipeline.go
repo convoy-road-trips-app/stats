@@ -45,6 +45,9 @@ type Pipeline struct {
 
 	// Per-exporter error counters (index corresponds to exporters slice)
 	exporterErrors []atomic.Uint64
+
+	// Tag validation and per-metric series limits (MaxCardinality)
+	cardinality cardinalityLimiter
 }
 
 // Exporter is the interface for backend exporters
@@ -78,6 +81,10 @@ func (p *Pipeline) Record(ctx context.Context, m *Metric) error {
 	if p.rateLimiter != nil && !p.rateLimiter.Allow() {
 		p.rateLimited.Add(1)
 		return ErrRateLimitExceeded
+	}
+
+	if !p.cardinality.admit(m, p.cfg.MaxCardinality) {
+		return ErrCardinalityLimit
 	}
 
 	// Set timestamp if not set
@@ -168,6 +175,7 @@ func (p *Pipeline) worker(_ int) {
 		select {
 		case <-p.ctx.Done():
 			// Flush remaining batch before exiting
+			batch = p.cardinality.appendDropCounters(batch)
 			if len(batch) > 0 {
 				p.processBatch(batch)
 			}
@@ -175,6 +183,7 @@ func (p *Pipeline) worker(_ int) {
 
 		case <-ticker.C:
 			// Flush on timer
+			batch = p.cardinality.appendDropCounters(batch)
 			if len(batch) > 0 {
 				p.processBatch(batch)
 				batch = batch[:0] // Reset slice, keep capacity
@@ -319,6 +328,7 @@ func (p *Pipeline) Stats() PipelineStats {
 		MaxMemory:      p.cfg.MaxMemoryBytes,
 		Workers:        p.workers,
 		ExporterErrors: p.getExporterErrors(),
+		DroppedLabels:  p.cardinality.total.Load(),
 	}
 
 	// Add rate limiter stats if enabled
@@ -352,4 +362,5 @@ type PipelineStats struct {
 	Workers        int
 	ExporterErrors map[string]uint64
 	RateLimiter    *RateLimiterStats // Rate limiter stats (nil if disabled)
+	DroppedLabels  uint64            // Labels and series dropped by tag validation and cardinality limits
 }

@@ -55,7 +55,7 @@ func DefaultConfig() *Config {
 		FlushInterval:    100 * time.Millisecond,
 		UDPTimeout:       100 * time.Millisecond,
 		MaxMemoryBytes:   10 * 1024 * 1024, // 10MB
-		MaxCardinality:   2000,
+		MaxCardinality:   defaultMaxCardinality,
 		DropStrategy:     DropNewest,
 		AdaptiveBatching: false,
 	}
@@ -81,6 +81,10 @@ func ValidateConfig(c *Config) error {
 
 	if c.MaxMemoryBytes <= 0 {
 		return fmt.Errorf("%w: max memory bytes must be positive", ErrInvalidConfig)
+	}
+
+	if c.MaxCardinality < 0 {
+		return fmt.Errorf("%w: max cardinality must not be negative", ErrInvalidConfig)
 	}
 
 	// Validate backend configs
