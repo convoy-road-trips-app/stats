@@ -194,21 +194,23 @@ func (l *cardinalityLimiter) appendDropCounters(batch []*Metric) []*Metric {
 	return batch
 }
 
-// validTagKey reports whether key matches ^[a-zA-Z_][a-zA-Z0-9_]*$.
+// validTagKey reports whether key is one or more identifier segments joined by
+// single dots, ^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$, so OTel
+// semantic-convention keys such as http.method are accepted unchanged.
 func validTagKey(key string) bool {
-	if key == "" {
-		return false
-	}
+	segmentStart := 0
 	for i := range len(key) {
 		c := key[i]
 		switch {
 		case c == '_', 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z':
-		case '0' <= c && c <= '9' && i > 0:
+		case '0' <= c && c <= '9' && i > segmentStart:
+		case c == '.' && i > segmentStart:
+			segmentStart = i + 1
 		default:
 			return false
 		}
 	}
-	return true
+	return segmentStart < len(key)
 }
 
 // capTagValue truncates value to at most 256 characters (runes).

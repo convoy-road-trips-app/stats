@@ -102,7 +102,7 @@ func TestRecord_treats_identical_attributes_in_different_order_as_one_series(t *
 }
 
 func TestRecord_rejects_observation_with_invalid_tag_key(t *testing.T) {
-	for _, key := range []string{"http.method", "1abc", "", "a-b", "é"} {
+	for _, key := range []string{"http..method", "1abc", "", "a-b", "é"} {
 		t.Run(key, func(t *testing.T) {
 			// Given: room for exactly one series
 			cfg := DefaultConfig()
@@ -329,7 +329,7 @@ func TestPipeline_emits_bounded_drop_counter_without_recursive_limiting(t *testi
 	}
 	require.NoError(t, p.Record(context.Background(), observation("wide_total", twelveLabels()...)))
 	require.ErrorIs(t, p.Record(context.Background(), observation("jobs_total",
-		attribute.Int("id", 0), attribute.String("bad.key", "x"))), ErrInvalidTagKey)
+		attribute.Int("id", 0), attribute.String("bad..key", "x"))), ErrInvalidTagKey)
 
 	// Then: drop counts arrive per bounded D10 reason; invalid-key rejections are errors, not drops
 	totals := map[string]float64{}
