@@ -18,9 +18,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestExporter_OTLPHTTP_cumulative_payload_across_exports(t *testing.T) {
-	// Given: a real OTLP/HTTP receiver on an ephemeral port.
-	received := make(chan *collectormetricspb.ExportMetricsServiceRequest, 2)
+// wireExporter returns an OTLP/HTTP exporter for config and the requests a real
+// receiver on an ephemeral port decodes from its protobuf payloads.
+func wireExporter(t *testing.T, config models.OTLPConfig) (*Exporter, <-chan *collectormetricspb.ExportMetricsServiceRequest) {
+	t.Helper()
+	received := make(chan *collectormetricspb.ExportMetricsServiceRequest, 8)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/metrics" {
 			http.Error(w, "unexpected OTLP path", http.StatusNotFound)
@@ -38,17 +40,22 @@ func TestExporter_OTLPHTTP_cumulative_payload_across_exports(t *testing.T) {
 		}
 		received <- &request
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
+	config.Enabled, config.Insecure, config.Protocol = true, true, models.OTLPProtocolHTTP
+	config.Endpoint = strings.TrimPrefix(server.URL, "http://")
+	exporter, err := NewExporter(&config)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, exporter.Shutdown(context.Background())) })
+	return exporter, received
+}
+
+func TestExporter_OTLPHTTP_cumulative_payload_across_exports(t *testing.T) {
+	// Given: a real OTLP/HTTP receiver on an ephemeral port.
 	t.Setenv("OTEL_SERVICE_NAME", "checkout-api")
 	t.Setenv("DEPLOYMENT_ENVIRONMENT", "production")
 	t.Setenv("SERVICE_VERSION", "2.4.1")
 	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "team=payments,service.name=ignored")
-	exporter, err := NewExporter(&models.OTLPConfig{
-		Enabled: true, Endpoint: strings.TrimPrefix(server.URL, "http://"), Insecure: true,
-		Protocol: models.OTLPProtocolHTTP,
-	})
-	require.NoError(t, err)
-	defer func() { require.NoError(t, exporter.Shutdown(context.Background())) }()
+	exporter, received := wireExporter(t, models.OTLPConfig{})
 	start := time.Now()
 
 	// When: separate batches pass through the real HTTP transport.
@@ -91,6 +98,36 @@ func TestExporter_OTLPHTTP_cumulative_payload_across_exports(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(path, append(encoded, '\n'), 0o600))
 	}
+}
+
+func TestExporter_OTLPHTTP_delta_point_never_ends_before_it_starts(t *testing.T) {
+	// Given: delta export, and a worker's batch with older observations
+	// reaching the exporter after a newer batch of the same series
+	exporter, received := wireExporter(t, models.OTLPConfig{Temporality: models.Delta})
+	newer := time.Unix(200, 0)
+	older := newer.Add(-time.Second)
+	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
+		{Name: "requests_total", Type: models.MetricTypeCounter, Value: 5, Timestamp: newer},
+		{Name: "duration_seconds", Type: models.MetricTypeHistogram, Value: 0.01, Timestamp: newer},
+	}))
+
+	// When
+	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
+		{Name: "requests_total", Type: models.MetricTypeCounter, Value: 1, Timestamp: older},
+		{Name: "duration_seconds", Type: models.MetricTypeHistogram, Value: 0.02, Timestamp: older},
+	}))
+
+	// Then: the late interval starts where the previous one ended and ends no
+	// earlier, without the cumulative 1 ms spacing
+	<-received
+	late := <-received
+	sum := wireMetric(t, late, "requests_total").GetSum().DataPoints[0]
+	hist := wireMetric(t, late, "duration_seconds").GetHistogram().DataPoints[0]
+	want := uint64(newer.UnixNano())
+	require.Equal(t, [2]uint64{want, want}, [2]uint64{sum.StartTimeUnixNano, sum.TimeUnixNano})
+	require.Equal(t, [2]uint64{want, want}, [2]uint64{hist.StartTimeUnixNano, hist.TimeUnixNano})
+	require.InDelta(t, float64(1), sum.GetAsDouble(), 0.001)
+	require.Equal(t, uint64(1), hist.Count)
 }
 
 func wireMetric(t *testing.T, request *collectormetricspb.ExportMetricsServiceRequest, name string) *metricspb.Metric {

@@ -21,14 +21,20 @@ type seriesState struct {
 const minPointSpacing = time.Millisecond
 
 // pointTime records the next point of the series and returns its timestamp.
-// Workers export batches concurrently, so a later cumulative export can hold
-// observations older than the previously exported point. Backends drop a
-// larger total stamped at or before that point as a duplicate or stale sample,
-// so the cumulative point is moved past it. Observations of the same batch are
-// clamped to the same floor and therefore do not drift.
+// Workers export batches concurrently, so a later export can hold observations
+// older than the previously exported point. A delta point starts where that
+// point ended, so its Time is raised to at least that end. Backends drop a
+// larger cumulative total stamped at or before the previous point as a
+// duplicate or stale sample, so a cumulative point is moved 1 ms past it.
+// Observations of the same batch are clamped to the same floor and therefore
+// do not drift.
 func (s *seriesState) pointTime(observed, exported time.Time, cumulative bool) time.Time {
-	if cumulative && !exported.IsZero() && observed.Before(exported.Add(minPointSpacing)) {
-		observed = exported.Add(minPointSpacing)
+	floor := exported
+	if cumulative && !exported.IsZero() {
+		floor = exported.Add(minPointSpacing)
+	}
+	if observed.Before(floor) {
+		observed = floor
 	}
 	if observed.After(s.lastTime) {
 		s.lastTime = observed

@@ -185,6 +185,31 @@ func TestExporter_cumulative_point_time_advances_when_later_export_holds_older_o
 	require.Equal(t, hists[0].Add(time.Millisecond), hists[1])
 }
 
+func TestExporter_delta_point_time_is_clamped_to_the_previous_point_end(t *testing.T) {
+	// Given: a delta series whose last point ended at a newer observation
+	newer := time.Unix(100, 0)
+	collector := &collectingExporter{}
+	exporter := &Exporter{config: &models.OTLPConfig{Enabled: true, Temporality: models.Delta}, otlpExporter: collector}
+	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
+		{Name: "requests_total", Type: models.MetricTypeCounter, Value: 5, Timestamp: newer},
+		{Name: "duration_seconds", Type: models.MetricTypeHistogram, Value: 0.01, Timestamp: newer},
+	}))
+
+	// When: a later export holds only older observations
+	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
+		{Name: "requests_total", Type: models.MetricTypeCounter, Value: 1, Timestamp: newer.Add(-time.Second)},
+		{Name: "requests_total", Type: models.MetricTypeCounter, Value: 1, Timestamp: newer.Add(-2 * time.Second)},
+		{Name: "duration_seconds", Type: models.MetricTypeHistogram, Value: 0.02, Timestamp: newer.Add(-time.Second)},
+	}))
+
+	// Then
+	sum := metricByName(t, collector.collections[1], "requests_total").Data.(metricdata.Sum[float64]).DataPoints[0]
+	hist := metricByName(t, collector.collections[1], "duration_seconds").Data.(metricdata.Histogram[float64]).DataPoints[0]
+	require.Equal(t, [2]time.Time{newer, newer}, [2]time.Time{sum.StartTime, sum.Time})
+	require.Equal(t, [2]time.Time{newer, newer}, [2]time.Time{hist.StartTime, hist.Time})
+	require.InDelta(t, float64(2), sum.Value, 0.001)
+}
+
 func metricByName(t *testing.T, rm metricdata.ResourceMetrics, name string) metricdata.Metrics {
 	t.Helper()
 	for _, m := range rm.ScopeMetrics[0].Metrics {
