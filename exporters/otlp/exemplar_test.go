@@ -88,6 +88,24 @@ func TestExporter_counter_keeps_sampled_exemplar_when_later_observation_is_unsam
 	require.Equal(t, []metricdata.Exemplar[float64]{{Time: start, Value: 2, TraceID: traceA[:], SpanID: spanA[:]}}, point.Exemplars)
 }
 
+func TestExporter_counter_keeps_the_newest_sampled_exemplar_when_the_batch_is_out_of_order(t *testing.T) {
+	// Given: two sampled observations of one series, the newer one first in the batch
+	start := time.Unix(100, 0)
+	collector := &collectingExporter{}
+	exporter := &Exporter{config: &models.OTLPConfig{Enabled: true}, otlpExporter: collector}
+	batch := []*models.Metric{
+		sampled(&models.Metric{Name: "requests_total", Type: models.MetricTypeCounter, Value: 2, Timestamp: start.Add(time.Second)}, traceB, spanB),
+		sampled(&models.Metric{Name: "requests_total", Type: models.MetricTypeCounter, Value: 3, Timestamp: start}, traceA, spanA),
+	}
+
+	// When
+	require.NoError(t, exporter.Export(context.Background(), batch))
+
+	// Then
+	point := requestsPoint(t, collector.collections[0])
+	require.Equal(t, []metricdata.Exemplar[float64]{{Time: start.Add(time.Second), Value: 2, TraceID: traceB[:], SpanID: spanB[:]}}, point.Exemplars)
+}
+
 func TestExporter_cumulative_exports_do_not_repeat_previous_interval_exemplars(t *testing.T) {
 	// Given: a first export with sampled counter and histogram observations
 	start := time.Unix(100, 0)
