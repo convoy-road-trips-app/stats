@@ -130,6 +130,21 @@ func TestExporter_OTLPHTTP_delta_point_never_ends_before_it_starts(t *testing.T)
 	require.Equal(t, uint64(1), hist.Count)
 }
 
+func TestExporter_OTLPHTTP_exports_the_resource_schema_URL(t *testing.T) {
+	// Given
+	const schemaURL = "https://opentelemetry.io/schemas/1.26.0"
+	exporter, received := wireExporter(t, models.OTLPConfig{ResourceSchemaURL: schemaURL})
+
+	// When
+	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
+		{Name: "requests_total", Type: models.MetricTypeCounter, Value: 1, Timestamp: time.Now()},
+	}))
+
+	// Then
+	request := <-received
+	require.Equal(t, schemaURL, request.ResourceMetrics[0].GetSchemaUrl())
+}
+
 func wireMetric(t *testing.T, request *collectormetricspb.ExportMetricsServiceRequest, name string) *metricspb.Metric {
 	t.Helper()
 	for _, scope := range request.ResourceMetrics[0].ScopeMetrics {

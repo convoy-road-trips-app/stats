@@ -55,7 +55,7 @@ func resourceForConfig(config *models.OTLPConfig) *resource.Resource {
 	for _, key := range keys {
 		values = append(values, attrs[key])
 	}
-	return resource.NewWithAttributes("", values...)
+	return resource.NewWithAttributes(config.ResourceSchemaURL, values...)
 }
 
 func applyEnvironmentAttribute(attrs map[string]attribute.KeyValue, key, env string) {

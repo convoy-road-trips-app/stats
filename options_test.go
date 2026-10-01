@@ -25,6 +25,7 @@ func TestWithOTLP_preserves_explicit_resource_and_service_options(t *testing.T) 
 	WithServiceName("explicit-service")(config)
 	WithEnvironment("production")(config)
 	WithOTLPResourceAttributes(attribute.String("team", "payments"))(config)
+	WithOTLPResourceSchemaURL("https://opentelemetry.io/schemas/1.26.0")(config)
 	WithTemporality(Delta)(config)
 
 	// When
@@ -35,4 +36,5 @@ func TestWithOTLP_preserves_explicit_resource_and_service_options(t *testing.T) 
 	require.Equal(t, "production", config.OTLP.DeploymentEnvironment)
 	require.Equal(t, Delta, config.OTLP.Temporality)
 	require.Equal(t, []attribute.KeyValue{attribute.String("team", "payments")}, config.OTLP.ResourceAttributes)
+	require.Equal(t, "https://opentelemetry.io/schemas/1.26.0", config.OTLP.ResourceSchemaURL)
 }

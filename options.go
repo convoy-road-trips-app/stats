@@ -41,6 +41,17 @@ func WithOTLPResourceAttributes(attrs ...attribute.KeyValue) Option {
 	}
 }
 
+// WithOTLPResourceSchemaURL sets the schema URL of the OTLP resource, the
+// ResourceMetrics.schema_url the collector receives.
+func WithOTLPResourceSchemaURL(schemaURL string) Option {
+	return func(c *Config) {
+		if c.OTLP == nil {
+			c.OTLP = &OTLPConfig{}
+		}
+		c.OTLP.ResourceSchemaURL = schemaURL
+	}
+}
+
 // WithEnvironment sets the environment (e.g., "production", "staging", "development")
 func WithEnvironment(env string) Option {
 	return func(c *Config) {
@@ -169,6 +180,9 @@ func WithOTLP(cfg *OTLPConfig) Option {
 				cfg.Temporality = c.OTLP.Temporality
 			}
 			cfg.ResourceAttributes = append(cfg.ResourceAttributes, c.OTLP.ResourceAttributes...)
+			if cfg.ResourceSchemaURL == "" {
+				cfg.ResourceSchemaURL = c.OTLP.ResourceSchemaURL
+			}
 			if cfg.ServiceName == "" {
 				cfg.ServiceName = c.OTLP.ServiceName
 			}

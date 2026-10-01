@@ -38,6 +38,7 @@ type OTLPConfig struct {
 	DeploymentEnvironment string
 	ServiceVersion        string
 	ResourceAttributes    []attribute.KeyValue
+	ResourceSchemaURL     string        // Schema URL of the exported resource, e.g. semconv.SchemaURL; empty by default
 	Temporality           Temporality   // "cumulative" (default) or "delta"
 	Protocol              OTLPProtocol  // "grpc" (default) or "http"
 	ExportTimeout         time.Duration // Per-export deadline; defaults to 10s if zero
