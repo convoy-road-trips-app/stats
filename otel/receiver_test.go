@@ -119,12 +119,15 @@ func (r *metricsReceiver) await(t *testing.T, series string) wirePoint {
 
 // provider returns a MeterProvider exporting to r through one worker that
 // exports only on ForceFlush/Shutdown unless opts add periodic collection.
+// Full batches still export in the background, bounded by UDPTimeout, so the
+// bound is raised from 100 ms to keep large tests independent of -race speed.
 func (r *metricsReceiver) provider(t *testing.T, opts ...MeterProviderOption) *MeterProvider {
 	t.Helper()
 	all := append([]MeterProviderOption{WithStatsOptions(
 		stats.WithServiceName("observable-e2e"),
 		stats.WithWorkers(1),
 		stats.WithFlushInterval(time.Hour),
+		stats.WithUDPTimeout(10*time.Second),
 		stats.WithOTLP(&stats.OTLPConfig{
 			Endpoint: strings.TrimPrefix(r.server.URL, "http://"),
 			Insecure: true,

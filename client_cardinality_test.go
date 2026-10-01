@@ -33,7 +33,9 @@ func TestNewClient_OTLP_exports_2000_series_and_drop_counter_when_2001st_series_
 		received <- &request
 	}))
 	defer server.Close()
-	client, err := NewClient(WithServiceName("cardinality-e2e"), WithOTLP(&OTLPConfig{
+	// Background exports are bounded by UDPTimeout (100 ms by default); a batch
+	// whose export times out under -race never reaches the receiver.
+	client, err := NewClient(WithServiceName("cardinality-e2e"), WithUDPTimeout(10*time.Second), WithOTLP(&OTLPConfig{
 		Endpoint: strings.TrimPrefix(server.URL, "http://"),
 		Insecure: true,
 		Protocol: OTLPProtocolHTTP,
