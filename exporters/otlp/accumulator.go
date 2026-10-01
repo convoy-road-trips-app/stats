@@ -27,7 +27,9 @@ const minPointSpacing = time.Millisecond
 // larger cumulative total stamped at or before the previous point as a
 // duplicate or stale sample, so a cumulative point is moved 1 ms past it.
 // Observations of the same batch are clamped to the same floor and therefore
-// do not drift.
+// do not drift. Within a batch the time never goes back, because a sum
+// datapoint merged from several observations takes the time of the last one
+// and must cover the newest observation it includes.
 func (s *seriesState) pointTime(observed, exported time.Time, cumulative bool) time.Time {
 	floor := exported
 	if cumulative && !exported.IsZero() {
@@ -36,9 +38,10 @@ func (s *seriesState) pointTime(observed, exported time.Time, cumulative bool) t
 	if observed.Before(floor) {
 		observed = floor
 	}
-	if observed.After(s.lastTime) {
-		s.lastTime = observed
+	if observed.Before(s.lastTime) {
+		observed = s.lastTime
 	}
+	s.lastTime = observed
 	return observed
 }
 

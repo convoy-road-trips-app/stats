@@ -146,6 +146,23 @@ func TestExporter_OTLPHTTP_exports_the_resource_schema_URL(t *testing.T) {
 	require.Equal(t, schemaURL, request.ResourceMetrics[0].GetSchemaUrl())
 }
 
+func TestExporter_OTLPHTTP_delta_sum_of_a_reordered_batch_ends_at_its_latest_observation(t *testing.T) {
+	// Given: a new delta series whose first batch holds the newer observation first
+	exporter, received := wireExporter(t, &models.OTLPConfig{Temporality: models.Delta})
+	newer := time.Unix(200, 0)
+
+	// When
+	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
+		{Name: "requests_total", Type: models.MetricTypeCounter, Value: 5, Timestamp: newer},
+		{Name: "requests_total", Type: models.MetricTypeCounter, Value: 1, Timestamp: newer.Add(-time.Second)},
+	}))
+
+	// Then
+	point := wireMetric(t, <-received, "requests_total").GetSum().DataPoints[0]
+	require.LessOrEqual(t, point.StartTimeUnixNano, point.TimeUnixNano)
+	require.Equal(t, uint64(newer.UnixNano()), point.TimeUnixNano)
+}
+
 func wireMetric(t *testing.T, request *collectormetricspb.ExportMetricsServiceRequest, name string) *metricspb.Metric {
 	t.Helper()
 	for _, scope := range request.ResourceMetrics[0].ScopeMetrics {

@@ -210,6 +210,29 @@ func TestExporter_delta_point_time_is_clamped_to_the_previous_point_end(t *testi
 	require.InDelta(t, float64(2), sum.Value, 0.001)
 }
 
+func TestExporter_sum_point_time_is_the_latest_observation_of_its_batch(t *testing.T) {
+	for _, temporality := range []models.Temporality{models.Delta, models.Cumulative} {
+		t.Run(string(temporality), func(t *testing.T) {
+			// Given: one batch holding a series' observations newer first
+			newer := time.Unix(100, 0)
+			collector := &collectingExporter{}
+			exporter := &Exporter{config: &models.OTLPConfig{Enabled: true, Temporality: temporality}, otlpExporter: collector}
+
+			// When
+			require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
+				{Name: "requests_total", Type: models.MetricTypeCounter, Value: 5, Timestamp: newer},
+				{Name: "requests_total", Type: models.MetricTypeCounter, Value: 1, Timestamp: newer.Add(-time.Second)},
+			}))
+
+			// Then: the point covers the newer observation it includes
+			point := metricByName(t, collector.collections[0], "requests_total").Data.(metricdata.Sum[float64]).DataPoints[0]
+			require.Equal(t, newer, point.Time)
+			require.False(t, point.StartTime.After(point.Time), "StartTime %v after Time %v", point.StartTime, point.Time)
+			require.InDelta(t, float64(6), point.Value, 0.001)
+		})
+	}
+}
+
 func metricByName(t *testing.T, rm metricdata.ResourceMetrics, name string) metricdata.Metrics {
 	t.Helper()
 	for _, m := range rm.ScopeMetrics[0].Metrics {
