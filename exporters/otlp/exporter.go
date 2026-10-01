@@ -218,7 +218,9 @@ func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Me
 	for _, m := range metrics {
 		attrs := attribute.NewSet(m.Attributes...)
 		metricData := metricdata.Metrics{
-			Name: m.Name,
+			Name:        m.Name,
+			Description: m.Description,
+			Unit:        m.Unit,
 		}
 
 		switch m.Type {

@@ -71,7 +71,8 @@ func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics) map[histogramKey]s
 				index = len(merged)
 				sumIndexes[m.Name] = index
 				data.DataPoints = nil
-				merged = append(merged, metricdata.Metrics{Name: m.Name, Data: data})
+				m.Data = data
+				merged = append(merged, m)
 			}
 			sum := merged[index].Data.(metricdata.Sum[float64])
 			for _, point := range observations {
