@@ -1,7 +1,9 @@
 package transport
 
 import (
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -244,4 +246,53 @@ func TestRingBuffer_Push_never_reports_full_below_capacity_while_consumers_pop(t
 
 	// Then: a stale write position must not be mistaken for a full buffer
 	assert.Equal(t, uint64(0), rb.Dropped())
+}
+
+func TestRingBuffer_delivers_every_pushed_item_exactly_once_while_the_buffer_is_full(t *testing.T) {
+	// Given: a tiny ring that producers keep at capacity while consumers pop
+	const producers, perProducer = 4, 20_000
+	rb := NewRingBuffer(8)
+	deliveries := make([]atomic.Int32, producers*perProducer)
+	take := func(item any) { deliveries[item.(int)].Add(1) }
+	stop := make(chan struct{})
+	var consumers sync.WaitGroup
+	for range 2 {
+		consumers.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					for _, item := range rb.PopBatch(3) {
+						take(item)
+					}
+				}
+			}
+		})
+	}
+
+	// When: every item is pushed, retrying while the ring reports full
+	var producersDone sync.WaitGroup
+	for p := range producers {
+		producersDone.Go(func() {
+			for i := range perProducer {
+				for !rb.Push(p*perProducer + i) {
+					runtime.Gosched()
+				}
+			}
+		})
+	}
+	producersDone.Wait()
+	close(stop)
+	consumers.Wait()
+	for item := rb.Pop(); item != nil; item = rb.Pop() {
+		take(item)
+	}
+
+	// Then: no pushed item is lost or popped twice
+	timesDelivered := map[int32]int{}
+	for i := range deliveries {
+		timesDelivered[deliveries[i].Load()]++
+	}
+	assert.Equal(t, map[int32]int{1: producers * perProducer}, timesDelivered)
 }

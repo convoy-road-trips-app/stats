@@ -5,10 +5,16 @@ import (
 	"sync/atomic"
 )
 
-// RingBuffer is a lock-free, bounded, single-producer-multiple-consumer ring buffer
-// Optimized for high-throughput metric collection with minimal allocation
+// RingBuffer is a bounded, multi-producer multi-consumer ring buffer
+// Optimized for high-throughput metric collection with minimal allocation.
+//
+// Each slot carries a sequence number (Vyukov's bounded MPMC queue): a slot is
+// free for the writer at position pos when seq == pos, and holds that
+// writer's item when seq == pos+1. A reader releases it for the next lap by
+// storing pos+capacity. Claiming a position therefore never reuses a slot
+// whose previous item has not been read yet.
 type RingBuffer struct {
-	buffer   []atomic.Pointer[any]
+	slots    []slot
 	capacity uint64
 	mask     uint64
 
@@ -25,15 +31,23 @@ type RingBuffer struct {
 	removed atomic.Uint64
 }
 
+type slot struct {
+	seq  atomic.Uint64
+	item any // published and released through seq
+}
+
 // NewRingBuffer creates a new ring buffer with the specified capacity
 // Capacity must be a power of 2 for optimal performance
 func NewRingBuffer(capacity int) *RingBuffer {
 	// Round up to next power of 2
 	capCount := nextPowerOfTwo(uint64(capacity))
 
-	buffer := make([]atomic.Pointer[any], capCount)
+	slots := make([]slot, capCount)
+	for i := range slots {
+		slots[i].seq.Store(uint64(i))
+	}
 	return &RingBuffer{
-		buffer:   buffer,
+		slots:    slots,
 		capacity: capCount,
 		mask:     capCount - 1,
 	}
@@ -57,67 +71,45 @@ func (rb *RingBuffer) Push(item any) bool {
 			return false
 		}
 
-		// Try to claim this slot
-		if rb.writePos.CompareAndSwap(writePos, writePos+1) {
-			// Successfully claimed slot, write the item
-			idx := writePos & rb.mask
-			// Store the item directly (item is already a pointer)
-			// No need to wrap in another pointer - this fixes the memory leak
-			rb.buffer[idx].Store(&item)
+		s := &rb.slots[writePos&rb.mask]
+		switch seq := s.seq.Load(); {
+		case seq < writePos:
+			// The reader of the previous lap claimed the slot but has not
+			// released it yet.
+			runtime.Gosched()
+		case seq == writePos && rb.writePos.CompareAndSwap(writePos, writePos+1):
+			s.item = item
+			s.seq.Store(writePos + 1)
 			rb.added.Add(1)
 			return true
 		}
-		// CAS failed, retry
+		// Stale writePos or lost CAS: retry
 	}
 }
 
-// Pop removes and returns an item from the buffer. Returns nil if buffer is empty
+// Pop removes and returns an item from the buffer. Returns nil if buffer is
+// empty. If the next item's writer has claimed its slot but not stored the
+// item yet, Pop waits for it, so items are popped in claim order.
 func (rb *RingBuffer) Pop() any {
 	for {
 		readPos := rb.readPos.Load()
-		writePos := rb.writePos.Load()
-
-		// Check if buffer is empty
-		if readPos >= writePos {
+		if readPos >= rb.writePos.Load() {
 			return nil
 		}
 
-		// Try to claim this slot
-		if rb.readPos.CompareAndSwap(readPos, readPos+1) {
-			// Successfully claimed slot, wait for item to be written
-			idx := readPos & rb.mask
-
-			// Bounded spin-wait for the item to be written
-			// This ensures the writer has completed the Store operation
-			// Maximum attempts prevent infinite loop if writer crashes
-			var itemPtr *any
-			attempts := 0
-			maxAttempts := 1_000_000 // ~1ms on modern CPU
-
-			for itemPtr == nil {
-				itemPtr = rb.buffer[idx].Load()
-				if itemPtr == nil {
-					attempts++
-					if attempts > maxAttempts {
-						// Writer likely crashed - return nil to prevent deadlock
-						// This is a safety measure; shouldn't happen in normal operation
-						rb.removed.Add(1)
-						return nil
-					}
-					if attempts > 100 {
-						// After initial spins, yield to other goroutines
-						runtime.Gosched()
-					}
-				}
-			}
-
-			// Clear the slot for GC
-			rb.buffer[idx].Store(nil)
+		s := &rb.slots[readPos&rb.mask]
+		switch seq := s.seq.Load(); {
+		case seq <= readPos:
+			// The writer claimed the slot but has not stored the item yet.
+			runtime.Gosched()
+		case seq == readPos+1 && rb.readPos.CompareAndSwap(readPos, readPos+1):
+			item := s.item
+			s.item = nil // Clear the slot for GC
+			s.seq.Store(readPos + rb.capacity)
 			rb.removed.Add(1)
-			// Return the item directly (it's already a pointer)
-			return *itemPtr
+			return item
 		}
-		// CAS failed, retry
+		// Stale readPos or lost CAS: retry
 	}
 }
 
