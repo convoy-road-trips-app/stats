@@ -177,6 +177,7 @@ func WithOTLP(cfg *OTLPConfig) Option {
 		}
 		merged := *cfg
 		merged.ResourceAttributes = slices.Clone(cfg.ResourceAttributes)
+		merged.HistogramBuckets = slices.Clone(cfg.HistogramBuckets)
 		if c.OTLP != nil {
 			if merged.HistogramBuckets == nil {
 				merged.HistogramBuckets = c.OTLP.HistogramBuckets
