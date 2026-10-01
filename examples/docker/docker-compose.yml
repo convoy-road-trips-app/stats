@@ -1,0 +1,30 @@
+# demo -> OTLP/HTTP -> OpenTelemetry Collector -> Prometheus
+name: stats-docker-example
+
+services:
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "18889:8889" # Prometheus text format, curl-able
+
+  prometheus:
+    image: prom/prometheus:v3.0.0
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "19090:9090" # query API
+    depends_on:
+      - collector
+
+  demo:
+    build:
+      context: ../..
+      dockerfile: examples/docker/Dockerfile
+    environment:
+      OTLP_ENDPOINT: collector:4318
+      SERVICE_NAME: stats-docker-example
+    depends_on:
+      - collector
