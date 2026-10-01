@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-10-01
+
+Documentation-only release. There are **no code or behavior changes**: the Go API, exports and defaults are identical to v1.1.0, and the module is unchanged apart from its version. Upgrading from v1.1.0 needs no action.
+
+### Changed
+
+- **Architecture diagrams**: the README's ASCII architecture drawing is replaced by a compact Mermaid diagram, and `docs/architecture.md` gains source-checked Mermaid diagrams for the component overview, the recording flow (validation, cardinality, pressure drops, enqueue), the export and exporter fan-out flow, and the Flush/Shutdown lifecycle, including the documented Flush/Shutdown race limitation. The original design notes in that file are kept below them, marked as design notes.
+- **Docker example**: `examples/docker/README.md` shows the demo, collector and Prometheus topology as a Mermaid diagram.
+- **README claims aligned with the code**: the feature list and design principles no longer promise zero allocation or that recording never blocks under any load, and now say that exporters are isolated from each other's errors and panics but a batch completes when its slowest exporter returns.
+- Broken links to a root `ARCHITECTURE.md` now point to `docs/architecture.md`.
+
 ## [1.1.0] - 2026-10-01
 
 OpenTelemetry conformance release. See [docs/otel_compliance.md](docs/otel_compliance.md) for the full semantics and limitations.
@@ -115,5 +126,6 @@ A v2 release would need the module path `github.com/convoy-road-trips-app/stats/
 
 See [README.md](README.md) for installation and quick start guide.
 
+[1.2.0]: https://github.com/convoy-road-trips-app/stats/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/convoy-road-trips-app/stats/compare/v1.0.1...v1.1.0
 [1.0.0]: https://github.com/convoy-road-trips-app/stats/releases/tag/v1.0.0
