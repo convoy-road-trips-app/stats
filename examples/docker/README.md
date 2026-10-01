@@ -2,8 +2,17 @@
 
 A small service built from this repository records a counter, a gauge and a latency histogram and exports them over OTLP/HTTP. An OpenTelemetry Collector receives them and serves them to Prometheus, which shows the histogram as `_bucket{le}` series.
 
-```
-demo (examples/docker/main.go) --OTLP/HTTP :4318--> collector --:8889--> Prometheus (:9090)
+```mermaid
+flowchart LR
+    subgraph compose["docker compose network"]
+        demo["demo<br/>examples/docker/main.go<br/>stats client, OTLP/HTTP"]
+        collector["collector<br/>OTLP receiver :4318<br/>Prometheus exporter :8889"]
+        prometheus["prometheus<br/>scrapes collector:8889<br/>every 2 s"]
+    end
+    demo -- "OTLP/HTTP :4318<br/>export every second" --> collector
+    prometheus -- "scrape :8889" --> collector
+    user(["You (host)"]) -- "curl :19090 query API" --> prometheus
+    user -- "curl :18889 /metrics" --> collector
 ```
 
 | Service | Image | Host port |
