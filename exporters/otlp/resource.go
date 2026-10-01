@@ -1,6 +1,7 @@
 package otlp
 
 import (
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -76,7 +77,12 @@ func parseResourceAttributes(raw string) []attribute.KeyValue {
 		if key == "" {
 			continue
 		}
-		attrs = append(attrs, attribute.String(key, strings.TrimSpace(value)))
+		value = strings.TrimSpace(value)
+		// Values are percent-encoded; like the OTel SDK, keep a malformed value as is.
+		if decoded, err := url.PathUnescape(value); err == nil {
+			value = decoded
+		}
+		attrs = append(attrs, attribute.String(key, value))
 	}
 	return attrs
 }

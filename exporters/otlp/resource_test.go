@@ -101,6 +101,19 @@ func TestParseResourceAttributes_splitsCommaSeparatedEntries(t *testing.T) {
 	assertAttributeValue(t, attrs, "service.version", "2.4.1")
 }
 
+func TestParseResourceAttributes_percent_decodes_values_like_the_OTel_SDK(t *testing.T) {
+	// Given: W3C Baggage percent-encoding, and a malformed escape the SDK keeps as is
+	raw := "service.name=checkout%20api,team=pay%2Cments,discount=50%"
+
+	// When
+	attrs := attribute.NewSet(parseResourceAttributes(raw)...)
+
+	// Then
+	assertAttributeValue(t, attrs, "service.name", "checkout api")
+	assertAttributeValue(t, attrs, "team", "pay,ments")
+	assertAttributeValue(t, attrs, "discount", "50%")
+}
+
 func assertAttributeValue(t *testing.T, attrs attribute.Set, key, want string) {
 	t.Helper()
 	value, ok := attrs.Value(attribute.Key(key))
