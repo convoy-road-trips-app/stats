@@ -20,9 +20,9 @@ import (
 
 // wireExporter returns an OTLP/HTTP exporter for config and the requests a real
 // receiver on an ephemeral port decodes from its protobuf payloads.
-func wireExporter(t *testing.T, config models.OTLPConfig) (*Exporter, <-chan *collectormetricspb.ExportMetricsServiceRequest) {
+func wireExporter(t *testing.T, config *models.OTLPConfig) (exporter *Exporter, received <-chan *collectormetricspb.ExportMetricsServiceRequest) {
 	t.Helper()
-	received := make(chan *collectormetricspb.ExportMetricsServiceRequest, 8)
+	requests := make(chan *collectormetricspb.ExportMetricsServiceRequest, 8)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/metrics" {
 			http.Error(w, "unexpected OTLP path", http.StatusNotFound)
@@ -38,15 +38,16 @@ func wireExporter(t *testing.T, config models.OTLPConfig) (*Exporter, <-chan *co
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		received <- &request
+		requests <- &request
 	}))
 	t.Cleanup(server.Close)
 	config.Enabled, config.Insecure, config.Protocol = true, true, models.OTLPProtocolHTTP
 	config.Endpoint = strings.TrimPrefix(server.URL, "http://")
-	exporter, err := NewExporter(&config)
+	var err error
+	exporter, err = NewExporter(config)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, exporter.Shutdown(context.Background())) })
-	return exporter, received
+	return exporter, requests
 }
 
 func TestExporter_OTLPHTTP_cumulative_payload_across_exports(t *testing.T) {
@@ -55,7 +56,7 @@ func TestExporter_OTLPHTTP_cumulative_payload_across_exports(t *testing.T) {
 	t.Setenv("DEPLOYMENT_ENVIRONMENT", "production")
 	t.Setenv("SERVICE_VERSION", "2.4.1")
 	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "team=payments,service.name=ignored")
-	exporter, received := wireExporter(t, models.OTLPConfig{})
+	exporter, received := wireExporter(t, &models.OTLPConfig{})
 	start := time.Now()
 
 	// When: separate batches pass through the real HTTP transport.
@@ -103,7 +104,7 @@ func TestExporter_OTLPHTTP_cumulative_payload_across_exports(t *testing.T) {
 func TestExporter_OTLPHTTP_delta_point_never_ends_before_it_starts(t *testing.T) {
 	// Given: delta export, and a worker's batch with older observations
 	// reaching the exporter after a newer batch of the same series
-	exporter, received := wireExporter(t, models.OTLPConfig{Temporality: models.Delta})
+	exporter, received := wireExporter(t, &models.OTLPConfig{Temporality: models.Delta})
 	newer := time.Unix(200, 0)
 	older := newer.Add(-time.Second)
 	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
@@ -133,7 +134,7 @@ func TestExporter_OTLPHTTP_delta_point_never_ends_before_it_starts(t *testing.T)
 func TestExporter_OTLPHTTP_exports_the_resource_schema_URL(t *testing.T) {
 	// Given
 	const schemaURL = "https://opentelemetry.io/schemas/1.26.0"
-	exporter, received := wireExporter(t, models.OTLPConfig{ResourceSchemaURL: schemaURL})
+	exporter, received := wireExporter(t, &models.OTLPConfig{ResourceSchemaURL: schemaURL})
 
 	// When
 	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{

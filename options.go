@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"cmp"
 	"time"
 
 	"github.com/convoy-road-trips-app/stats/models"
@@ -176,22 +177,12 @@ func WithOTLP(cfg *OTLPConfig) Option {
 			cfg.HistogramBuckets = c.OTLP.HistogramBuckets
 		}
 		if c.OTLP != nil {
-			if cfg.Temporality == "" {
-				cfg.Temporality = c.OTLP.Temporality
-			}
+			cfg.Temporality = cmp.Or(cfg.Temporality, c.OTLP.Temporality)
 			cfg.ResourceAttributes = append(cfg.ResourceAttributes, c.OTLP.ResourceAttributes...)
-			if cfg.ResourceSchemaURL == "" {
-				cfg.ResourceSchemaURL = c.OTLP.ResourceSchemaURL
-			}
-			if cfg.ServiceName == "" {
-				cfg.ServiceName = c.OTLP.ServiceName
-			}
-			if cfg.DeploymentEnvironment == "" {
-				cfg.DeploymentEnvironment = c.OTLP.DeploymentEnvironment
-			}
-			if cfg.Retry == nil {
-				cfg.Retry = c.OTLP.Retry
-			}
+			cfg.ResourceSchemaURL = cmp.Or(cfg.ResourceSchemaURL, c.OTLP.ResourceSchemaURL)
+			cfg.ServiceName = cmp.Or(cfg.ServiceName, c.OTLP.ServiceName)
+			cfg.DeploymentEnvironment = cmp.Or(cfg.DeploymentEnvironment, c.OTLP.DeploymentEnvironment)
+			cfg.Retry = cmp.Or(cfg.Retry, c.OTLP.Retry)
 		}
 		cfg.Enabled = true
 		c.OTLP = cfg
