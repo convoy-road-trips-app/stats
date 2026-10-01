@@ -7,9 +7,11 @@ This document describes the OpenTelemetry (OTel) compliance features of the stat
 The stats library provides **dual-mode operation**:
 
 1. **Legacy Mode** (default): Simple, high-performance API (`stats.NewClient()`)
-2. **OTel Mode**: Full OpenTelemetry SDK compliance (`otel.NewMeterProvider()`)
+2. **OTel Mode**: An implementation of the OpenTelemetry Metrics API (`otel.NewMeterProvider()`)
 
 Both modes share the same high-performance pipeline underneath, ensuring consistent performance characteristics.
+
+OTel Mode implements the Metrics **API**; it is not the OpenTelemetry SDK. It has no views or custom readers, and a few instruments map onto the pipeline's counter/gauge/histogram types with documented divergences (see [Limitations](#limitations)).
 
 ## Quick Start
 
@@ -73,33 +75,28 @@ func main() {
 
 ### Synchronous Instruments
 
-All synchronous instruments are fully supported:
+All synchronous instruments can be created and recorded:
 
 | Instrument | Description | Use Case |
 |------------|-------------|----------|
 | `Int64Counter` | Monotonically increasing integer | Request counts, bytes sent |
 | `Float64Counter` | Monotonically increasing float | Fractional increments |
-| `Int64UpDownCounter` | Can increase or decrease | Active connections, queue size |
-| `Float64UpDownCounter` | Can increase or decrease (float) | Temperature changes |
+| `Int64UpDownCounter` | Can increase or decrease (exported as a gauge, see [Limitations](#limitations)) | Active connections, queue size |
+| `Float64UpDownCounter` | Can increase or decrease (exported as a gauge, see [Limitations](#limitations)) | Temperature changes |
 | `Int64Histogram` | Distribution of integer values | Response sizes |
 | `Float64Histogram` | Distribution of float values | Request durations, latencies |
 | `Int64Gauge` | Point-in-time integer value | CPU usage, memory |
 | `Float64Gauge` | Point-in-time float value | CPU percentage, ratios |
 
-### Asynchronous Instruments
+### Asynchronous (Observable) Instruments
 
-Asynchronous (observable) instruments are **not supported** due to OpenTelemetry SDK limitations. The Go OTel SDK uses unexported marker methods (`int64Observable`, `float64Observable`) that prevent external implementations of these interfaces.
+All six observable instruments are supported since v1.1.0: `Int64/Float64ObservableCounter`, `Int64/Float64ObservableUpDownCounter` and `Int64/Float64ObservableGauge`, registered through instrument callbacks or `Meter.RegisterCallback`.
 
-Attempting to create these instruments will return an error:
-- `Int64ObservableCounter`
-- `Float64ObservableCounter`
-- `Int64ObservableUpDownCounter`
-- `Float64ObservableUpDownCounter`
-- `Int64ObservableGauge`
-- `Float64ObservableGauge`
-- `RegisterCallback`
-
-> **Note**: Most applications only need synchronous instruments (Counter, Histogram, Gauge). If you require asynchronous instruments (e.g., for scraping system metrics), we recommend using the official OpenTelemetry SDK alongside this library.
+- Callbacks run on a collection loop that starts with the first registration and runs every `otel.WithCollectionInterval` (default 10s). `MeterProvider.ForceFlush` and `Shutdown` run one more collection with the caller's context before flushing.
+- ObservableCounter callbacks report cumulative totals. The provider records the increase since the last observation of each series, so the exported cumulative value equals the observed total.
+- ObservableUpDownCounter and ObservableGauge observations are exported as gauges.
+- Registration errors: `ErrNilCallback`, `ErrForeignObservable` (instrument from another implementation), `ErrObservableMeter` (instrument from another meter, skipped), `ErrUnregisteredObservable` (observing an instrument the callback was not registered for; the observation is dropped). Collection errors go to `otel.Handle`.
+- Callbacks run with an empty span context and never produce exemplars.
 
 ## Architecture
 
@@ -137,13 +134,55 @@ Attempting to create these instruments will return an error:
 
 ### Key Design Decisions
 
-1. **No Aggregation in OTel Mode**: Metrics are passed directly to the underlying stats client, which handles batching and export. This maintains our high-performance characteristics.
+1. **No Aggregation in the Pipeline**: Instruments pass observations directly to the underlying stats client, which buffers, batches and exports them. Aggregation happens only inside the OTLP exporter (see [OTLP Export Semantics](#otlp-export-semantics)); the Datadog, Prometheus (StatsD) and CloudWatch EMF exporters keep their per-observation behavior.
 
 2. **Attribute Conversion**: OTel `attribute.Set` is converted to stats `MetricOption` format using an iterator to avoid allocations.
 
 3. **Embedded Types**: We use `embedded.Meter`, `embedded.Int64Counter`, etc. to satisfy OTel SDK interfaces without implementing marker methods.
 
 4. **Shared Pipeline**: Both modes use the same lock-free ring buffer and worker pool, ensuring consistent performance.
+
+## OTLP Export Semantics
+
+These rules apply to the OTLP exporter (`stats.WithOTLP`) in both modes.
+
+### Temporality
+
+- Sums (counters) and histograms are exported with **cumulative** temporality by default. `stats.WithTemporality(stats.Delta)` opts into delta.
+- Cumulative state is kept per (metric name, attribute set) inside the exporter. A failed export still advances the state, so the next cumulative point includes the interval the collector did not receive.
+- Workers export batches concurrently, so a later export can carry observations older than the previous point of the same series. Cumulative points are therefore stamped at least 1 ms after the previous point of the series. Without this, Prometheus drops the larger total as a duplicate sample.
+- Prometheus' OTLP receiver (used by `grafana/otel-lgtm`) ingests only cumulative sums and histograms; delta series do not reach the query surface there.
+
+### Histograms
+
+- Observations are aggregated per export batch into explicit-bucket histograms, one data point per attribute set, with count, sum, min, max and cumulative-range bucket counts.
+- Default bounds are the telemetry spec D9 seconds buckets: `0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10` (`models.DefaultHistogramBuckets()`).
+- `stats.WithHistogramBuckets(bounds)` overrides them. Bounds must be finite and strictly increasing; an empty list is rejected.
+- In Prometheus these arrive as `<name>_bucket{le="..."}`, `<name>_count` and `<name>_sum`. `test/integration/lgtm/buckets_test.go` checks every `le` series and its count against the LGTM stack for the legacy API, a custom bucket override, and the OTel API.
+
+### Resource
+
+`service.name`, `deployment.environment` and `service.version` resolve in this order (later wins): `OTEL_RESOURCE_ATTRIBUTES` < `OTEL_SERVICE_NAME` / `DEPLOYMENT_ENVIRONMENT` / `SERVICE_VERSION` < explicit options (`WithServiceName`, `WithEnvironment`, `WithOTLPResourceAttributes`, `otel.WithResource`). Missing identity falls back to `unknown_service` / `unknown`.
+
+### Attributes and Cardinality (all exporters)
+
+Enforced in the shared pipeline, so Datadog, Prometheus (StatsD) and CloudWatch EMF receive the same sanitized attributes:
+
+- Attribute keys must match `^[a-zA-Z_][a-zA-Z0-9_]*$`. An observation with any other key is rejected with `stats.ErrInvalidTagKey` and nothing is recorded. Dotted OTel semantic-convention keys such as `http.method` are rejected; use `http_method`. Metric names may still contain dots.
+- String values are capped at 256 runes. Only the first 10 keys in lexical order are kept.
+- Each metric name admits at most 2000 distinct attribute sets by default (`stats.WithMaxCardinality`). Observations of new series beyond the limit return `stats.ErrCardinalityLimit`.
+- Drops are counted in `telemetry_dropped_labels_total{reason="label_limit"|"series_limit"}`.
+- OTel instruments discard these errors (the API has no error return), so rejected observations are silently not recorded in OTel Mode.
+
+### Exemplars
+
+When the recording context holds a valid, **sampled** span, counter and histogram observations carry its `trace_id`/`span_id`, and the OTLP exporter emits them as exemplars: the latest per bucket for histograms and the latest per series for sums. Gauges and unsampled or span-less contexts get none, and exemplars never repeat into later cumulative exports.
+
+### Flush, Shutdown and Retry
+
+- `Client.Flush(ctx)` / `MeterProvider.ForceFlush(ctx)` export every buffered observation with the caller's context. `Shutdown(ctx)` drains the buffer before returning and returns `context.DeadlineExceeded` (wrapped) when ctx ends first. Both report failures of a background export that was already in flight when they were called.
+- `stats.WithOTLPRetry(initial, maxInterval, maxElapsed)` enables exponential-backoff retries of retryable OTLP failures. Retries are bounded by the export context.
+- Background exports (ticker or full batch) are bounded by `WithUDPTimeout` (default 100 ms), including OTLP exports. Raise it for remote collectors; otherwise slow background exports fail and are reported by the next Flush/Shutdown.
 
 ## Migration Guide
 
@@ -256,17 +295,21 @@ provider, _ := otel.NewMeterProvider(
 
 ### Current Limitations
 
-1. **No Async Instruments**: Observable instruments not yet implemented
-2. **No Views**: Metric views for cardinality control not yet implemented
-3. **No Readers**: Custom metric readers not yet supported
-4. **Delta Temporality Only**: Only delta aggregation is supported (matches StatsD semantics)
+1. **UpDownCounter is a gauge**: synchronous `UpDownCounter.Add(n)` records a gauge whose value is `n`, the latest increment, not a running total. Observable UpDownCounters export the observed value as a gauge. Neither is exported as a non-monotonic OTLP Sum.
+2. **No Views**: Metric views are not implemented; cardinality is bounded by the fixed limits above.
+3. **No Readers**: Custom metric readers are not supported; export is push-only through the pipeline.
+4. **Units are not converted**: `Client.Timing` records milliseconds into a histogram, while the default buckets are in seconds. Use `Histogram` with seconds, or set `WithHistogramBuckets`.
+5. **Counters accept negative values** in the legacy API (`Client.Counter`); they are not rejected.
+6. **No OTLP environment configuration**: `OTEL_EXPORTER_OTLP_ENDPOINT` and related variables are not read; configure the endpoint with `WithOTLP`.
+7. **Prometheus OTLP ingestion requires cumulative temporality** (the default); `WithTemporality(stats.Delta)` series are dropped by Prometheus' OTLP receiver.
 
 ### Planned Features
 
-- [ ] Async/Observable instruments
+- [x] Async/Observable instruments (v1.1.0)
+- [x] Cumulative temporality support (v1.1.0, default)
+- [ ] Non-monotonic Sum export for UpDownCounters
 - [ ] Metric views for cardinality control
 - [ ] Custom metric readers
-- [ ] Cumulative temporality support
 
 ## Examples
 
@@ -282,7 +325,7 @@ See [`examples/otel/main.go`](../examples/otel/main.go) for a complete working e
 | Memory Usage | Low (bounded) | Unbounded |
 | Blocking | Never blocks | Can block |
 | Backends | Datadog, Prom, CW, OTLP | OTLP, Prometheus |
-| Aggregation | None (pass-through) | Full aggregation |
+| Aggregation | Per-batch histograms + cumulative state in the OTLP exporter only | Full aggregation |
 | Views | Not yet | Yes |
 
 ### vs. StatsD Libraries
@@ -300,8 +343,10 @@ See [`examples/otel/main.go`](../examples/otel/main.go) for a complete working e
 
 1. **Check backend configuration**: Ensure Datadog/Prometheus/CloudWatch agent is running
 2. **Check buffer size**: Increase `WithBufferSize()` if dropping metrics
-3. **Check flush interval**: Metrics are batched, wait for flush
-4. **Enable logging**: Use `stats.WithDebug(true)` to see internal errors
+3. **Check flush interval**: Metrics are batched; call `Flush(ctx)` / `ForceFlush(ctx)` or wait for the flush interval
+4. **Inspect pipeline stats**: `client.Stats().Pipeline` reports processed, dropped and per-exporter error counts
+5. **Check attribute keys**: dotted keys such as `http.method` are rejected (`ErrInvalidTagKey`); OTel instruments drop those observations silently
+6. **Prometheus via OTLP**: keep the default cumulative temporality; delta series are not ingested
 
 ### Performance Issues
 
