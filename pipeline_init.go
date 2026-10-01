@@ -12,6 +12,8 @@ import (
 	"github.com/convoy-road-trips-app/stats/transport"
 )
 
+// NewPipeline validates cfg and creates a pipeline with the exporters of every
+// enabled backend. Start launches its workers.
 func NewPipeline(cfg *Config) (*Pipeline, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("%w: config is nil", ErrInvalidConfig)
@@ -20,6 +22,32 @@ func NewPipeline(cfg *Config) (*Pipeline, error) {
 		return nil, err
 	}
 
+	exporters, err := newExporters(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var rateLimiter *RateLimiter
+	if cfg.RateLimitPerSecond > 0 {
+		rateLimiter = NewRateLimiter(cfg.RateLimitPerSecond, cfg.RateLimitBurst)
+	}
+
+	return &Pipeline{
+		cfg:            cfg,
+		buffer:         transport.NewRingBuffer(cfg.BufferSize),
+		workers:        cfg.Workers,
+		exporters:      exporters,
+		exporterErrors: make([]atomic.Uint64, len(exporters)),
+		rateLimiter:    rateLimiter,
+		ctx:            ctx,
+		cancel:         cancel,
+		shutdownCh:     make(chan struct{}),
+	}, nil
+}
+
+// newExporters creates the exporter of every enabled backend.
+func newExporters(cfg *Config) ([]Exporter, error) {
 	exporters := make([]Exporter, 0, 3)
 	if cfg.Datadog != nil && cfg.Datadog.Enabled {
 		ddExporter, err := datadog.NewExporter(cfg.Datadog)
@@ -43,37 +71,28 @@ func NewPipeline(cfg *Config) (*Pipeline, error) {
 		exporters = append(exporters, cwExporter)
 	}
 	if cfg.OTLP != nil && cfg.OTLP.Enabled {
-		// Stats-level placeholders are not explicit identity: leave them unset so
-		// OTEL_SERVICE_NAME / DEPLOYMENT_ENVIRONMENT (and spec fallbacks) apply.
-		defaults := DefaultConfig()
-		if cfg.OTLP.ServiceName == "" && cfg.ServiceName != defaults.ServiceName {
-			cfg.OTLP.ServiceName = cfg.ServiceName
-		}
-		if cfg.OTLP.DeploymentEnvironment == "" && cfg.Environment != defaults.Environment {
-			cfg.OTLP.DeploymentEnvironment = cfg.Environment
-		}
-		otlpExporter, err := otlp.NewExporter(cfg.OTLP)
+		otlpExporter, err := newOTLPExporter(cfg)
 		if err != nil {
-			return nil, fmt.Errorf("create otlp exporter: %w", err)
+			return nil, err
 		}
 		exporters = append(exporters, otlpExporter)
 	}
+	return exporters, nil
+}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	var rateLimiter *RateLimiter
-	if cfg.RateLimitPerSecond > 0 {
-		rateLimiter = NewRateLimiter(cfg.RateLimitPerSecond, cfg.RateLimitBurst)
+func newOTLPExporter(cfg *Config) (*otlp.Exporter, error) {
+	// Stats-level placeholders are not explicit identity: leave them unset so
+	// OTEL_SERVICE_NAME / DEPLOYMENT_ENVIRONMENT (and spec fallbacks) apply.
+	defaults := DefaultConfig()
+	if cfg.OTLP.ServiceName == "" && cfg.ServiceName != defaults.ServiceName {
+		cfg.OTLP.ServiceName = cfg.ServiceName
 	}
-
-	return &Pipeline{
-		cfg:            cfg,
-		buffer:         transport.NewRingBuffer(cfg.BufferSize),
-		workers:        cfg.Workers,
-		exporters:      exporters,
-		exporterErrors: make([]atomic.Uint64, len(exporters)),
-		rateLimiter:    rateLimiter,
-		ctx:            ctx,
-		cancel:         cancel,
-		shutdownCh:     make(chan struct{}),
-	}, nil
+	if cfg.OTLP.DeploymentEnvironment == "" && cfg.Environment != defaults.Environment {
+		cfg.OTLP.DeploymentEnvironment = cfg.Environment
+	}
+	otlpExporter, err := otlp.NewExporter(cfg.OTLP)
+	if err != nil {
+		return nil, fmt.Errorf("create otlp exporter: %w", err)
+	}
+	return otlpExporter, nil
 }
