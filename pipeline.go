@@ -96,6 +96,7 @@ func (p *Pipeline) Record(ctx context.Context, m *Metric) error {
 	if m.Timestamp.IsZero() {
 		m.Timestamp = time.Now()
 	}
+	attachExemplar(ctx, m)
 
 	return p.admitAndEnqueue(m)
 }

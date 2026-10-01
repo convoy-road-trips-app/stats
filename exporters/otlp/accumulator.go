@@ -96,6 +96,7 @@ func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics) map[histogramKey]s
 				}
 				if cumulative {
 					state.histogram = *point
+					state.histogram.Exemplars = nil // exemplars belong to one export interval
 				} else {
 					state.histogram = metricdata.HistogramDataPoint[float64]{}
 				}
@@ -111,12 +112,17 @@ func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics) map[histogramKey]s
 	return next
 }
 
+// addSumPoint merges point into the datapoint of its series. The latest sampled
+// exemplar of the batch is kept when later observations of the series are not sampled.
 func addSumPoint(sum *metricdata.Sum[float64], point metricdata.DataPoint[float64]) {
 	for i := range sum.DataPoints {
 		if sum.DataPoints[i].Attributes.Equivalent() == point.Attributes.Equivalent() {
 			if sum.Temporality == metricdata.DeltaTemporality {
 				point.Value += sum.DataPoints[i].Value
 				point.StartTime = sum.DataPoints[i].StartTime
+			}
+			if len(point.Exemplars) == 0 {
+				point.Exemplars = sum.DataPoints[i].Exemplars
 			}
 			sum.DataPoints[i] = point
 			return

@@ -166,6 +166,7 @@ func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Me
 
 	histograms := make(map[string]metricdata.Histogram[float64])
 	histogramIndexes := make(map[histogramKey]int)
+	exemplars := bucketExemplars{}
 	for _, m := range metrics {
 		if m.Type != models.MetricTypeHistogram {
 			continue
@@ -205,9 +206,12 @@ func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Me
 		if m.Value > max {
 			point.Max = metricdata.NewExtrema(m.Value)
 		}
-		point.BucketCounts[sort.Search(len(bounds), func(i int) bool { return m.Value <= bounds[i] })]++
+		bucket := sort.Search(len(bounds), func(i int) bool { return m.Value <= bounds[i] })
+		point.BucketCounts[bucket]++
+		exemplars.offer(key, bucket, len(point.BucketCounts), m)
 		histograms[m.Name] = histogram
 	}
+	exemplars.attach(histograms, histogramIndexes)
 
 	addedHistograms := make(map[string]struct{}, len(histograms))
 
@@ -227,6 +231,7 @@ func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Me
 						Attributes: attrs,
 						Time:       m.Timestamp,
 						Value:      m.Value,
+						Exemplars:  exemplarOf(m),
 					},
 				},
 			}

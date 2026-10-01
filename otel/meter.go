@@ -1,7 +1,6 @@
 package otel
 
 import (
-	"fmt"
 	"sync"
 
 	"go.opentelemetry.io/otel/metric"
@@ -203,44 +202,80 @@ func (m *Meter) Float64Gauge(name string, opts ...metric.Float64GaugeOption) (me
 	return gauge, nil
 }
 
-// Int64ObservableCounter creates a new async Int64ObservableCounter
-// Note: Async/observable instruments are not yet supported due to OTel SDK limitations
+// Int64ObservableCounter creates an instrument whose callbacks observe a
+// cumulative int64 total; each collection exports the observed total.
 func (m *Meter) Int64ObservableCounter(name string, opts ...metric.Int64ObservableCounterOption) (metric.Int64ObservableCounter, error) {
-	return nil, fmt.Errorf("async/observable instruments not yet supported")
+	cfg := metric.NewInt64ObservableCounterConfig(opts...)
+	spec := observableSpec{
+		key: "observable_counter_int64_" + name, name: name, description: cfg.Description(), unit: cfg.Unit(),
+		kind: observableCounter, callbacks: int64Callbacks(cfg.Callbacks()),
+	}
+	return observableFor(m, spec, func(o *observable) *int64ObservableCounter { return &int64ObservableCounter{observable: o} })
 }
 
-// Float64ObservableCounter creates a new async Float64ObservableCounter
-// Note: Async/observable instruments are not yet supported due to OTel SDK limitations
+// Float64ObservableCounter creates an instrument whose callbacks observe a
+// cumulative float64 total; each collection exports the observed total.
 func (m *Meter) Float64ObservableCounter(name string, opts ...metric.Float64ObservableCounterOption) (metric.Float64ObservableCounter, error) {
-	return nil, fmt.Errorf("async/observable instruments not yet supported")
+	cfg := metric.NewFloat64ObservableCounterConfig(opts...)
+	spec := observableSpec{
+		key: "observable_counter_float64_" + name, name: name, description: cfg.Description(), unit: cfg.Unit(),
+		kind: observableCounter, callbacks: float64Callbacks(cfg.Callbacks()),
+	}
+	return observableFor(m, spec, func(o *observable) *float64ObservableCounter { return &float64ObservableCounter{observable: o} })
 }
 
-// Int64ObservableUpDownCounter creates a new async Int64ObservableUpDownCounter
-// Note: Async/observable instruments are not yet supported due to OTel SDK limitations
+// Int64ObservableUpDownCounter creates an instrument whose callbacks observe an
+// int64 total that may decrease; it is exported as a gauge, like the
+// synchronous UpDownCounter.
 func (m *Meter) Int64ObservableUpDownCounter(name string, opts ...metric.Int64ObservableUpDownCounterOption) (metric.Int64ObservableUpDownCounter, error) {
-	return nil, fmt.Errorf("async/observable instruments not yet supported")
+	cfg := metric.NewInt64ObservableUpDownCounterConfig(opts...)
+	spec := observableSpec{
+		key: "observable_updowncounter_int64_" + name, name: name, description: cfg.Description(), unit: cfg.Unit(),
+		kind: observableUpDownCounter, callbacks: int64Callbacks(cfg.Callbacks()),
+	}
+	return observableFor(m, spec, func(o *observable) *int64ObservableUpDownCounter {
+		return &int64ObservableUpDownCounter{observable: o}
+	})
 }
 
-// Float64ObservableUpDownCounter creates a new async Float64ObservableUpDownCounter
-// Note: Async/observable instruments are not yet supported due to OTel SDK limitations
+// Float64ObservableUpDownCounter creates an instrument whose callbacks observe a
+// float64 total that may decrease; it is exported as a gauge, like the
+// synchronous UpDownCounter.
 func (m *Meter) Float64ObservableUpDownCounter(name string, opts ...metric.Float64ObservableUpDownCounterOption) (metric.Float64ObservableUpDownCounter, error) {
-	return nil, fmt.Errorf("async/observable instruments not yet supported")
+	cfg := metric.NewFloat64ObservableUpDownCounterConfig(opts...)
+	spec := observableSpec{
+		key: "observable_updowncounter_float64_" + name, name: name, description: cfg.Description(), unit: cfg.Unit(),
+		kind: observableUpDownCounter, callbacks: float64Callbacks(cfg.Callbacks()),
+	}
+	return observableFor(m, spec, func(o *observable) *float64ObservableUpDownCounter {
+		return &float64ObservableUpDownCounter{observable: o}
+	})
 }
 
-// Int64ObservableGauge creates a new async Int64ObservableGauge
-// Note: Async/observable instruments are not yet supported due to OTel SDK limitations
+// Int64ObservableGauge creates an instrument whose callbacks observe the current
+// int64 value.
 func (m *Meter) Int64ObservableGauge(name string, opts ...metric.Int64ObservableGaugeOption) (metric.Int64ObservableGauge, error) {
-	return nil, fmt.Errorf("async/observable instruments not yet supported")
+	cfg := metric.NewInt64ObservableGaugeConfig(opts...)
+	spec := observableSpec{
+		key: "observable_gauge_int64_" + name, name: name, description: cfg.Description(), unit: cfg.Unit(),
+		kind: observableGauge, callbacks: int64Callbacks(cfg.Callbacks()),
+	}
+	return observableFor(m, spec, func(o *observable) *int64ObservableGauge { return &int64ObservableGauge{observable: o} })
 }
 
-// Float64ObservableGauge creates a new async Float64ObservableGauge
-// Note: Async/observable instruments are not yet supported due to OTel SDK limitations
+// Float64ObservableGauge creates an instrument whose callbacks observe the
+// current float64 value.
 func (m *Meter) Float64ObservableGauge(name string, opts ...metric.Float64ObservableGaugeOption) (metric.Float64ObservableGauge, error) {
-	return nil, fmt.Errorf("async/observable instruments not yet supported")
+	cfg := metric.NewFloat64ObservableGaugeConfig(opts...)
+	spec := observableSpec{
+		key: "observable_gauge_float64_" + name, name: name, description: cfg.Description(), unit: cfg.Unit(),
+		kind: observableGauge, callbacks: float64Callbacks(cfg.Callbacks()),
+	}
+	return observableFor(m, spec, func(o *observable) *float64ObservableGauge { return &float64ObservableGauge{observable: o} })
 }
 
-// RegisterCallback registers a callback for async instruments
-// Note: Async/observable instruments are not yet supported due to OTel SDK limitations
+// RegisterCallback registers f to observe insts, which must be observable
+// instruments of this Meter, on every collection until it is unregistered.
 func (m *Meter) RegisterCallback(f metric.Callback, insts ...metric.Observable) (metric.Registration, error) {
-	return nil, fmt.Errorf("async/observable instruments not yet supported")
+	return m.registerCallback(f, insts)
 }

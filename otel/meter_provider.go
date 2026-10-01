@@ -2,8 +2,10 @@ package otel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -25,6 +27,10 @@ type MeterProvider struct {
 	meters map[string]*Meter
 	mu     sync.RWMutex
 
+	// Observable instrument callbacks and how often they run between flushes
+	collectionInterval time.Duration
+	observers          *callbackRegistry
+
 	// Shutdown coordination
 	shutdownOnce sync.Once
 }
@@ -36,9 +42,10 @@ type MeterProviderOption func(*MeterProvider) error
 func NewMeterProvider(opts ...MeterProviderOption) (*MeterProvider, error) {
 	clientOptions := []stats.Option{stats.WithOTelMode()}
 	mp := &MeterProvider{
-		resource:      resource.Empty(),
-		clientOptions: clientOptions,
-		meters:        make(map[string]*Meter),
+		resource:           resource.Empty(),
+		clientOptions:      clientOptions,
+		meters:             make(map[string]*Meter),
+		collectionInterval: defaultCollectionInterval,
 	}
 
 	// Apply options
@@ -50,6 +57,7 @@ func NewMeterProvider(opts ...MeterProviderOption) (*MeterProvider, error) {
 	if err := mp.replaceClient(); err != nil {
 		return nil, err
 	}
+	mp.observers = newCallbackRegistry(mp.collectionInterval)
 	return mp, nil
 }
 
@@ -71,19 +79,41 @@ func (mp *MeterProvider) Meter(name string, opts ...metric.MeterOption) metric.M
 	return meter
 }
 
-// Shutdown shuts down the MeterProvider and flushes any pending metrics
+// Shutdown runs the observable callbacks a last time, stops their periodic
+// collection and shuts down the MeterProvider, flushing any pending metrics.
 func (mp *MeterProvider) Shutdown(ctx context.Context) error {
 	var shutdownErr error
 	mp.shutdownOnce.Do(func() {
-		shutdownErr = mp.client.Shutdown(ctx)
+		shutdownErr = joinErrors(mp.observers.shutdown(ctx), mp.client.Shutdown(ctx))
 	})
 	return shutdownErr
 }
 
-// ForceFlush exports every observation recorded before the call and returns
-// once it has been exported, or with ctx's error once ctx is done.
+// ForceFlush runs the observable callbacks, then exports every observation
+// recorded before the call and returns once it has been exported, or with
+// ctx's error once ctx is done. Callback errors are returned too.
 func (mp *MeterProvider) ForceFlush(ctx context.Context) error {
-	return mp.client.Flush(ctx)
+	return joinErrors(mp.observers.collect(ctx), mp.client.Flush(ctx))
+}
+
+// joinErrors returns pipelineErr unchanged when collection succeeded.
+func joinErrors(collectErr, pipelineErr error) error {
+	if collectErr == nil {
+		return pipelineErr
+	}
+	return errors.Join(collectErr, pipelineErr)
+}
+
+// WithCollectionInterval sets how often observable instrument callbacks run
+// between ForceFlush calls. The default is 10 seconds.
+func WithCollectionInterval(interval time.Duration) MeterProviderOption {
+	return func(mp *MeterProvider) error {
+		if interval <= 0 {
+			return fmt.Errorf("%w: %v", ErrCollectionInterval, interval)
+		}
+		mp.collectionInterval = interval
+		return nil
+	}
 }
 
 // WithResource returns a MeterProviderOption that configures the resource

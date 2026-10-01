@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // MetricType represents the type of metric
@@ -41,6 +42,18 @@ type Metric struct {
 	Attributes []attribute.KeyValue
 	Timestamp  time.Time
 	Priority   int // 0=low, 1=normal, 2=high, 3=critical
+
+	// TraceID and SpanID identify the sampled span the observation was recorded
+	// under. Exporters that support exemplars attach them to the datapoint; the
+	// zero values mean no exemplar.
+	TraceID trace.TraceID
+	SpanID  trace.SpanID
+}
+
+// HasExemplar reports whether the observation carries a sampled span to export
+// as an exemplar.
+func (m *Metric) HasExemplar() bool {
+	return m.TraceID.IsValid() && m.SpanID.IsValid()
 }
 
 // EstimateSize returns an estimate of the metric size in bytes
@@ -50,6 +63,9 @@ func (m *Metric) EstimateSize() int64 {
 	size += 8 // Timestamp
 	size += 4 // Priority
 	size += 4 // Type
+	if m.HasExemplar() {
+		size += int64(len(m.TraceID) + len(m.SpanID))
+	}
 
 	// Attributes
 	for _, attr := range m.Attributes {
@@ -68,6 +84,8 @@ func (m *Metric) Reset() {
 	m.Attributes = m.Attributes[:0]
 	m.Timestamp = time.Time{}
 	m.Priority = 1
+	m.TraceID = trace.TraceID{}
+	m.SpanID = trace.SpanID{}
 }
 
 // metricPool is a sync.Pool for reusing Metric objects
