@@ -26,8 +26,12 @@ type Exporter struct {
 	config       *models.OTLPConfig
 	otlpExporter otlpMetricExporter
 	mu           sync.Mutex
-	series       map[histogramKey]seriesState
+	// series is the committed state per series. It is held by pointer because
+	// a map field would make Exporter incomparable, an API break from v1.0.x.
+	series *seriesStates
 }
+
+type seriesStates map[histogramKey]seriesState
 
 // NewExporter creates a new OTLP exporter
 func NewExporter(config *models.OTLPConfig) (*Exporter, error) {
@@ -133,7 +137,7 @@ func (e *Exporter) Export(ctx context.Context, metrics []*models.Metric) error {
 	err := e.otlpExporter.Export(ctx, &rm)
 	// Keep observations even after a failed send so the next cumulative export
 	// includes the interval that the collector did not receive.
-	e.series = next
+	e.series = &next
 	return err
 }
 

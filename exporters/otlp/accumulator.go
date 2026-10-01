@@ -45,20 +45,24 @@ func (s *seriesState) pointTime(observed, exported time.Time, cumulative bool) t
 // accumulation builds the series state of one export on top of the state
 // committed by the previous successful export.
 type accumulation struct {
-	exported   map[histogramKey]seriesState
-	next       map[histogramKey]seriesState
+	exported   seriesStates
+	next       seriesStates
 	cumulative bool
 }
 
 // accumulate builds the next state without committing it until transport succeeds.
 // Export holds the lock across this call and the send, preserving per-series order.
-func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics) map[histogramKey]seriesState {
+func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics) seriesStates {
+	var exported seriesStates
+	if e.series != nil {
+		exported = *e.series
+	}
 	acc := accumulation{
-		exported:   e.series,
-		next:       make(map[histogramKey]seriesState, len(e.series)),
+		exported:   exported,
+		next:       make(seriesStates, len(exported)),
 		cumulative: e.config.Temporality != models.Delta,
 	}
-	maps.Copy(acc.next, e.series)
+	maps.Copy(acc.next, exported)
 	metrics := rm.ScopeMetrics[0].Metrics
 	merged := make([]metricdata.Metrics, 0, len(metrics))
 	sumIndexes := make(map[string]int)
