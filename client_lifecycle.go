@@ -2,6 +2,7 @@ package stats
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -19,7 +20,9 @@ func (c *Client) Flush(ctx context.Context) error {
 	return c.pipeline.Flush(ctx)
 }
 
-// Shutdown gracefully shuts down the client
+// Shutdown gracefully shuts down the client. It stops the runtime collector
+// and drains the pipeline even when the collector fails to stop, and reports
+// both failures, joined with errors.Join, when both occur.
 func (c *Client) Shutdown(ctx context.Context) error {
 	var shutdownErr error
 
@@ -28,21 +31,30 @@ func (c *Client) Shutdown(ctx context.Context) error {
 		c.closed = true
 		c.mu.Unlock()
 
+		var collectorErr error
 		if c.collector != nil {
 			if err := c.collector.Stop(ctx); err != nil {
-				shutdownErr = fmt.Errorf("stop runtime collector: %w", err)
+				collectorErr = fmt.Errorf("stop runtime collector: %w", err)
 			}
 		}
 
-		// Shutdown pipeline
-		if err := c.pipeline.Shutdown(ctx); err != nil {
-			if shutdownErr == nil {
-				shutdownErr = err
-			}
-		}
+		pipelineErr := c.pipeline.Shutdown(ctx)
+		shutdownErr = joinShutdownErrors(collectorErr, pipelineErr)
 	})
 
 	return shutdownErr
+}
+
+// joinShutdownErrors returns the one non-nil error unchanged, so a single
+// failure keeps its own wrapping, and joins the errors when both failed.
+func joinShutdownErrors(collectorErr, pipelineErr error) error {
+	if collectorErr == nil {
+		return pipelineErr
+	}
+	if pipelineErr == nil {
+		return collectorErr
+	}
+	return errors.Join(collectorErr, pipelineErr)
 }
 
 // Close closes the client with a default 5-second timeout
