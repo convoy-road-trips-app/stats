@@ -1,6 +1,6 @@
 .PHONY: all build test test-race test-cover bench lint clean help \
         integration-up integration-down integration-test integration-test-verbose integration-logs \
-        lgtm-up lgtm-down lgtm-test \
+        lgtm-up lgtm-down lgtm-test docker-example-test \
         install-golangci-lint
 
 # Tool versions
@@ -93,6 +93,11 @@ lgtm-test: lgtm-up
 	go test -v -count=1 -tags=integration ./test/integration/lgtm/... || (make lgtm-down && exit 1)
 	@make lgtm-down
 
+# Run the Docker example end to end (needs Docker with the Compose plugin)
+docker-example-test:
+	@echo "Running the Docker example test..."
+	go test -v -count=1 -tags=docker ./examples/docker/...
+
 # Clean build artifacts
 clean:
 	rm -f coverage.out coverage.html
@@ -116,4 +121,5 @@ help:
 	@echo "  lgtm-up                  - Start LGTM stack (Grafana, Mimir, OTel Collector)"
 	@echo "  lgtm-down                - Stop LGTM stack"
 	@echo "  lgtm-test                - Run LGTM integration tests"
+	@echo "  docker-example-test      - Run the examples/docker compose test"
 	@echo "  clean                    - Clean build artifacts"
