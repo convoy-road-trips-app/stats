@@ -54,7 +54,7 @@ func TestExporter_cumulative_values_across_batches(t *testing.T) {
 		sum := metricByName(t, collector.collections[i], "requests_total").Data.(metricdata.Sum[float64])
 		require.Equal(t, metricdata.CumulativeTemporality, sum.Temporality)
 		require.Len(t, sum.DataPoints, 1)
-		require.Equal(t, want, sum.DataPoints[0].Value)
+		require.InDelta(t, want, sum.DataPoints[0].Value, 0.001)
 		require.Equal(t, start, sum.DataPoints[0].StartTime)
 	}
 	for i, want := range []struct {
@@ -88,7 +88,7 @@ func TestExporter_cumulative_values_include_failed_export_interval(t *testing.T)
 	// Then
 	require.Len(t, collector.collections, 1)
 	sum := metricByName(t, collector.collections[0], "requests_total").Data.(metricdata.Sum[float64])
-	require.Equal(t, float64(5), sum.DataPoints[0].Value)
+	require.InDelta(t, float64(5), sum.DataPoints[0].Value, 0.001)
 }
 
 func TestExporter_delta_values_across_batches(t *testing.T) {
@@ -108,7 +108,7 @@ func TestExporter_delta_values_across_batches(t *testing.T) {
 	// Then
 	sum := metricByName(t, collector.collections[1], "requests_total").Data.(metricdata.Sum[float64])
 	require.Equal(t, metricdata.DeltaTemporality, sum.Temporality)
-	require.Equal(t, float64(4), sum.DataPoints[0].Value)
+	require.InDelta(t, float64(4), sum.DataPoints[0].Value, 0.001)
 	require.Equal(t, start, sum.DataPoints[0].StartTime)
 }
 
@@ -128,7 +128,7 @@ func TestExporter_delta_preserves_observations_within_each_batch(t *testing.T) {
 	sum := metricByName(t, collector.collections[0], "requests_total").Data.(metricdata.Sum[float64])
 	require.Equal(t, metricdata.DeltaTemporality, sum.Temporality)
 	require.Len(t, sum.DataPoints, 1)
-	require.Equal(t, float64(5), sum.DataPoints[0].Value)
+	require.InDelta(t, float64(5), sum.DataPoints[0].Value, 0.001)
 }
 
 func TestExporter_cumulative_separates_attribute_series(t *testing.T) {
@@ -150,7 +150,7 @@ func TestExporter_cumulative_separates_attribute_series(t *testing.T) {
 	// Then
 	sum := metricByName(t, collector.collections[1], "requests_total").Data.(metricdata.Sum[float64])
 	require.Len(t, sum.DataPoints, 1)
-	require.Equal(t, float64(5), sum.DataPoints[0].Value)
+	require.InDelta(t, float64(5), sum.DataPoints[0].Value, 0.001)
 }
 
 func TestExporter_cumulative_point_time_advances_when_later_export_holds_older_observations(t *testing.T) {

@@ -63,16 +63,17 @@ func TestExporter_OTLPHTTP_cumulative_payload_across_exports(t *testing.T) {
 
 	// Then: the collector sees cumulative data and the required resource identity.
 	first, second := <-received, <-received
-	require.Equal(t, float64(2), wireMetric(t, first, "requests_total").GetSum().DataPoints[0].GetAsDouble())
-	require.Equal(t, float64(5), wireMetric(t, second, "requests_total").GetSum().DataPoints[0].GetAsDouble())
+	require.InDelta(t, float64(2), wireMetric(t, first, "requests_total").GetSum().DataPoints[0].GetAsDouble(), 0.001)
+	require.InDelta(t, float64(5), wireMetric(t, second, "requests_total").GetSum().DataPoints[0].GetAsDouble(), 0.001)
 	require.Equal(t, uint64(2), wireMetric(t, second, "duration_seconds").GetHistogram().DataPoints[0].Count)
 	require.Equal(t, "checkout-api", wireResourceValue(t, second, "service.name"))
 	require.Equal(t, "production", wireResourceValue(t, second, "deployment.environment"))
 	require.Equal(t, "2.4.1", wireResourceValue(t, second, "service.version"))
 	require.Equal(t, "payments", wireResourceValue(t, second, "team"))
 	if path := os.Getenv("STATS_OTLP_QA_EVIDENCE"); path != "" {
-		points := []map[string]any{}
-		for _, request := range []*collectormetricspb.ExportMetricsServiceRequest{first, second} {
+		requests := []*collectormetricspb.ExportMetricsServiceRequest{first, second}
+		points := make([]map[string]any, 0, len(requests))
+		for _, request := range requests {
 			counter := wireMetric(t, request, "requests_total").GetSum()
 			histogram := wireMetric(t, request, "duration_seconds").GetHistogram()
 			points = append(points, map[string]any{

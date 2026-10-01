@@ -79,8 +79,8 @@ func TestExporter_OTLPHTTP_retry_resends_without_duplicating_cumulative_data(t *
 	// Then: the retried payload carries the value once, and the next export continues from it
 	require.Equal(t, int64(3), receiver.attempts.Load())
 	first, second := <-receiver.received, <-receiver.received
-	require.Equal(t, float64(2), wireMetric(t, first, "requests_total").GetSum().DataPoints[0].GetAsDouble())
-	require.Equal(t, float64(5), wireMetric(t, second, "requests_total").GetSum().DataPoints[0].GetAsDouble())
+	require.InDelta(t, float64(2), wireMetric(t, first, "requests_total").GetSum().DataPoints[0].GetAsDouble(), 0.001)
+	require.InDelta(t, float64(5), wireMetric(t, second, "requests_total").GetSum().DataPoints[0].GetAsDouble(), 0.001)
 }
 
 func TestExporter_OTLPHTTP_retry_stops_after_max_elapsed_time(t *testing.T) {

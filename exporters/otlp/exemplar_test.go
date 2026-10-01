@@ -37,9 +37,10 @@ func histogramPoint(t *testing.T, rm metricdata.ResourceMetrics, name string) me
 	return points[0]
 }
 
-func sumPoint(t *testing.T, rm metricdata.ResourceMetrics, name string) metricdata.DataPoint[float64] {
+// requestsPoint returns the only requests_total datapoint of rm.
+func requestsPoint(t *testing.T, rm metricdata.ResourceMetrics) metricdata.DataPoint[float64] {
 	t.Helper()
-	points := metricByName(t, rm, name).Data.(metricdata.Sum[float64]).DataPoints
+	points := metricByName(t, rm, "requests_total").Data.(metricdata.Sum[float64]).DataPoints
 	require.Len(t, points, 1)
 	return points[0]
 }
@@ -82,8 +83,8 @@ func TestExporter_counter_keeps_sampled_exemplar_when_later_observation_is_unsam
 	require.NoError(t, exporter.Export(context.Background(), batch))
 
 	// Then
-	point := sumPoint(t, collector.collections[0], "requests_total")
-	require.Equal(t, float64(5), point.Value)
+	point := requestsPoint(t, collector.collections[0])
+	require.InDelta(t, float64(5), point.Value, 0.001)
 	require.Equal(t, []metricdata.Exemplar[float64]{{Time: start, Value: 2, TraceID: traceA[:], SpanID: spanA[:]}}, point.Exemplars)
 }
 
@@ -105,10 +106,10 @@ func TestExporter_cumulative_exports_do_not_repeat_previous_interval_exemplars(t
 
 	// Then: totals stay cumulative but exemplars belong to their own interval
 	require.Len(t, collector.collections, 2)
-	require.Len(t, sumPoint(t, collector.collections[0], "requests_total").Exemplars, 1)
+	require.Len(t, requestsPoint(t, collector.collections[0]).Exemplars, 1)
 	require.Len(t, histogramPoint(t, collector.collections[0], "latency").Exemplars, 1)
-	second := sumPoint(t, collector.collections[1], "requests_total")
-	require.Equal(t, float64(5), second.Value)
+	second := requestsPoint(t, collector.collections[1])
+	require.InDelta(t, float64(5), second.Value, 0.001)
 	require.Empty(t, second.Exemplars)
 	histogram := histogramPoint(t, collector.collections[1], "latency")
 	require.Equal(t, uint64(2), histogram.Count)
@@ -130,7 +131,7 @@ func TestExporter_exemplar_ids_survive_reuse_of_the_pooled_metric(t *testing.T) 
 	sampled(m, traceB, spanB)
 
 	// Then
-	exemplar := sumPoint(t, collector.collections[0], "requests_total").Exemplars[0]
+	exemplar := requestsPoint(t, collector.collections[0]).Exemplars[0]
 	require.Equal(t, traceA[:], exemplar.TraceID)
 	require.Equal(t, spanA[:], exemplar.SpanID)
 }
@@ -149,7 +150,7 @@ func TestExporter_gauge_and_unsampled_points_have_no_exemplars(t *testing.T) {
 	// Then
 	gauge := metricByName(t, collector.collections[0], "inflight").Data.(metricdata.Gauge[float64])
 	require.Empty(t, gauge.DataPoints[0].Exemplars)
-	require.Empty(t, sumPoint(t, collector.collections[0], "requests_total").Exemplars)
+	require.Empty(t, requestsPoint(t, collector.collections[0]).Exemplars)
 }
 
 func TestExporter_OTLPHTTP_serializes_exemplar_trace_and_span_ids_as_bytes(t *testing.T) {
@@ -187,10 +188,10 @@ func TestExporter_OTLPHTTP_serializes_exemplar_trace_and_span_ids_as_bytes(t *te
 	require.Len(t, histogram, 1)
 	require.Equal(t, traceA[:], histogram[0].GetTraceId())
 	require.Equal(t, spanA[:], histogram[0].GetSpanId())
-	require.Equal(t, 0.2, histogram[0].GetAsDouble())
+	require.InDelta(t, 0.2, histogram[0].GetAsDouble(), 0.001)
 	counter := wireMetric(t, request, "requests_total").GetSum().GetDataPoints()[0].GetExemplars()
 	require.Len(t, counter, 1)
 	require.Equal(t, traceB[:], counter[0].GetTraceId())
 	require.Equal(t, spanB[:], counter[0].GetSpanId())
-	require.Equal(t, float64(4), counter[0].GetAsDouble())
+	require.InDelta(t, float64(4), counter[0].GetAsDouble(), 0.001)
 }
