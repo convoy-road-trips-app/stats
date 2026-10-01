@@ -74,9 +74,11 @@ func (rb *RingBuffer) Push(item any) bool {
 		s := &rb.slots[writePos&rb.mask]
 		switch seq := s.seq.Load(); {
 		case seq < writePos:
-			// The reader of the previous lap claimed the slot but has not
-			// released it yet.
-			runtime.Gosched()
+			// The slot still holds the previous lap's item: its reader claimed
+			// it but has not released it yet. Report full instead of waiting
+			// on that reader, so Push never depends on a consumer running.
+			rb.dropped.Add(1)
+			return false
 		case seq == writePos && rb.writePos.CompareAndSwap(writePos, writePos+1):
 			s.item = item
 			s.seq.Store(writePos + 1)
@@ -91,6 +93,18 @@ func (rb *RingBuffer) Push(item any) bool {
 // empty. If the next item's writer has claimed its slot but not stored the
 // item yet, Pop waits for it, so items are popped in claim order.
 func (rb *RingBuffer) Pop() any {
+	return rb.pop(true)
+}
+
+// TryPop is Pop without the wait: it also returns nil when the next item's
+// writer has claimed its slot but not stored the item yet, and leaves that
+// slot to the writer. Use it where the caller must never depend on another
+// goroutine running.
+func (rb *RingBuffer) TryPop() any {
+	return rb.pop(false)
+}
+
+func (rb *RingBuffer) pop(waitForWriter bool) any {
 	for {
 		readPos := rb.readPos.Load()
 		if readPos >= rb.writePos.Load() {
@@ -101,6 +115,9 @@ func (rb *RingBuffer) Pop() any {
 		switch seq := s.seq.Load(); {
 		case seq <= readPos:
 			// The writer claimed the slot but has not stored the item yet.
+			if !waitForWriter {
+				return nil
+			}
 			runtime.Gosched()
 		case seq == readPos+1 && rb.readPos.CompareAndSwap(readPos, readPos+1):
 			item := s.item

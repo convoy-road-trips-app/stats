@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -295,4 +296,76 @@ func TestRingBuffer_delivers_every_pushed_item_exactly_once_while_the_buffer_is_
 		timesDelivered[deliveries[i].Load()]++
 	}
 	assert.Equal(t, map[int32]int{1: producers * perProducer}, timesDelivered)
+}
+
+func TestRingBuffer_Push_reports_full_instead_of_waiting_for_a_stalled_consumer(t *testing.T) {
+	// Given: a full ring whose next slot a consumer has claimed but, stalled
+	// between claim and release, still holds
+	rb := NewRingBuffer(2)
+	assert.True(t, rb.Push("first"))
+	assert.True(t, rb.Push("second"))
+	assert.True(t, rb.readPos.CompareAndSwap(0, 1))
+
+	// When
+	pushed := make(chan bool, 1)
+	go func() { pushed <- rb.Push("third") }()
+
+	// Then: Push returns at once and counts the drop
+	select {
+	case ok := <-pushed:
+		assert.False(t, ok)
+		assert.Equal(t, uint64(1), rb.Dropped())
+	case <-time.After(5 * time.Second):
+		t.Fatal("Push blocked on a consumer that had not released its slot")
+	}
+}
+
+func TestRingBuffer_Push_reuses_a_slot_once_its_consumer_releases_it(t *testing.T) {
+	// Given: a full ring whose oldest item was popped
+	rb := NewRingBuffer(2)
+	assert.True(t, rb.Push("first"))
+	assert.True(t, rb.Push("second"))
+	assert.Equal(t, "first", rb.Pop())
+
+	// When
+	ok := rb.Push("third")
+
+	// Then
+	assert.True(t, ok)
+	assert.Equal(t, []any{"second", "third"}, rb.PopBatch(3))
+}
+
+func TestRingBuffer_TryPop_reports_empty_instead_of_waiting_for_a_stalled_producer(t *testing.T) {
+	// Given: a producer claimed the next slot but, stalled between claim and
+	// publish, has not stored its item
+	rb := NewRingBuffer(2)
+	assert.True(t, rb.writePos.CompareAndSwap(0, 1))
+
+	// When
+	popped := make(chan any, 1)
+	go func() { popped <- rb.TryPop() }()
+
+	// Then: TryPop returns at once and leaves the slot to its producer
+	select {
+	case item := <-popped:
+		assert.Nil(t, item)
+		assert.Equal(t, uint64(0), rb.Removed())
+	case <-time.After(5 * time.Second):
+		t.Fatal("TryPop blocked on a producer that had not published its item")
+	}
+}
+
+func TestRingBuffer_TryPop_removes_the_oldest_published_item(t *testing.T) {
+	// Given
+	rb := NewRingBuffer(2)
+	assert.True(t, rb.Push("first"))
+	assert.True(t, rb.Push("second"))
+
+	// When
+	item := rb.TryPop()
+
+	// Then
+	assert.Equal(t, "first", item)
+	assert.True(t, rb.Push("third"))
+	assert.Equal(t, []any{"second", "third"}, rb.PopBatch(3))
 }
