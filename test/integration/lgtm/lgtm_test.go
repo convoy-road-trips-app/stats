@@ -7,10 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -24,54 +22,15 @@ import (
 	statsOtel "github.com/convoy-road-trips-app/stats/otel"
 )
 
+// IPv4 loopback: with "localhost", gRPC tries ::1 first, and Docker Desktop's
+// IPv6 port forward can stall a dial for seconds.
 const (
-	prometheusURL = "http://localhost:9090"
-	otlpEndpoint  = "localhost:4317"
+	prometheusURL = "http://127.0.0.1:9090"
+	otlpEndpoint  = "127.0.0.1:4317"
 	queryTimeout  = 60 * time.Second
+	readyTimeout  = 120 * time.Second
 	pollInterval  = 2 * time.Second
 )
-
-func TestMain(m *testing.M) {
-	if err := waitForReady(); err != nil {
-		fmt.Fprintf(os.Stderr, "LGTM stack not ready: %v\n", err)
-		os.Exit(1)
-	}
-	os.Exit(m.Run())
-}
-
-func waitForReady() error {
-	deadline := time.Now().Add(90 * time.Second)
-	promReady := false
-	otlpReady := false
-	httpClient := &http.Client{Timeout: 5 * time.Second}
-
-	for time.Now().Before(deadline) {
-		if !promReady {
-			resp, err := httpClient.Get(prometheusURL + "/-/ready")
-			if err == nil {
-				resp.Body.Close()
-				if resp.StatusCode == http.StatusOK {
-					promReady = true
-				}
-			}
-		}
-
-		if !otlpReady {
-			conn, err := net.DialTimeout("tcp", otlpEndpoint, 2*time.Second)
-			if err == nil {
-				conn.Close()
-				otlpReady = true
-			}
-		}
-
-		if promReady && otlpReady {
-			time.Sleep(5 * time.Second)
-			return nil
-		}
-		time.Sleep(2 * time.Second)
-	}
-	return fmt.Errorf("LGTM stack not ready after 90s (prometheus=%v, otlp=%v)", promReady, otlpReady)
-}
 
 type promResponse struct {
 	Status string   `json:"status"`
@@ -127,9 +86,10 @@ func waitForMetric(t *testing.T, promQL string) *promResponse {
 	return nil
 }
 
-func newOTLPClient(t *testing.T, svc string) *stats.Client {
-	t.Helper()
-	client, err := stats.NewClient(
+// otlpOptions configures a pipeline that exports to the LGTM collector over
+// OTLP/gRPC.
+func otlpOptions(svc string) []stats.Option {
+	return []stats.Option{
 		stats.WithServiceName(svc),
 		stats.WithEnvironment("test"),
 		stats.WithBufferSize(1024),
@@ -139,7 +99,12 @@ func newOTLPClient(t *testing.T, svc string) *stats.Client {
 			Insecure:    true,
 			ServiceName: svc,
 		}),
-	)
+	}
+}
+
+func newOTLPClient(t *testing.T, svc string, extra ...stats.Option) *stats.Client {
+	t.Helper()
+	client, err := stats.NewClient(append(otlpOptions(svc), extra...)...)
 	require.NoError(t, err)
 	return client
 }
@@ -185,17 +150,7 @@ func TestLGTM_LegacyMode(t *testing.T) {
 
 func TestLGTM_OTelMode(t *testing.T) {
 	provider, err := statsOtel.NewMeterProvider(
-		statsOtel.WithStatsOptions(
-			stats.WithServiceName("lgtm-otel"),
-			stats.WithEnvironment("test"),
-			stats.WithBufferSize(1024),
-			stats.WithWorkers(2),
-			stats.WithOTLP(&stats.OTLPConfig{
-				Endpoint:    otlpEndpoint,
-				Insecure:    true,
-				ServiceName: "lgtm-otel",
-			}),
-		),
+		statsOtel.WithStatsOptions(otlpOptions("lgtm-otel")...),
 	)
 	require.NoError(t, err)
 
