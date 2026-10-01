@@ -121,9 +121,25 @@ func (e *Exporter) ExportTimeout() time.Duration {
 	return e.config.ExportTimeout
 }
 
-// Export sends metrics to OTLP collector
+// Export sends metrics to OTLP collector. With cumulative temporality the
+// export also repeats every known series not observed in metrics.
 func (e *Exporter) Export(ctx context.Context, metrics []*models.Metric) error {
-	if !e.config.Enabled || len(metrics) == 0 {
+	if len(metrics) == 0 {
+		return nil
+	}
+	return e.export(ctx, metrics)
+}
+
+// ExportIdle repeats the cumulative state of every known series for an export
+// interval in which nothing was observed, as the OTel SDK does on each
+// collection. It sends nothing with delta temporality or before the first
+// observation.
+func (e *Exporter) ExportIdle(ctx context.Context) error {
+	return e.export(ctx, nil)
+}
+
+func (e *Exporter) export(ctx context.Context, metrics []*models.Metric) error {
+	if !e.config.Enabled {
 		return nil
 	}
 
@@ -137,7 +153,10 @@ func (e *Exporter) Export(ctx context.Context, metrics []*models.Metric) error {
 	rm := toResourceMetricsWithConfig(e.config, metrics, bounds)
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	next := e.accumulate(&rm)
+	next := e.accumulate(&rm, time.Now())
+	if len(metrics) == 0 && len(rm.ScopeMetrics[0].Metrics) == 0 {
+		return nil
+	}
 	err := e.otlpExporter.Export(ctx, &rm)
 	// Keep observations even after a failed send so the next cumulative export
 	// includes the interval that the collector did not receive.

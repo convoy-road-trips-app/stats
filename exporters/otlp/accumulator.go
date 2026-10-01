@@ -4,6 +4,7 @@ import (
 	"maps"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/convoy-road-trips-app/stats/models"
@@ -14,6 +15,13 @@ type seriesState struct {
 	lastTime  time.Time
 	sum       float64
 	histogram metricdata.HistogramDataPoint[float64]
+
+	// Identity of the series, kept so a cumulative export can repeat it in
+	// an interval without observations.
+	meta       seriesMeta
+	attributes attribute.Set
+	kind       seriesKind
+	gauge      float64 // last observed value of a gauge series
 }
 
 // minPointSpacing keeps successive cumulative points of a series in distinct
@@ -51,11 +59,12 @@ type accumulation struct {
 	exported   seriesStates
 	next       seriesStates
 	cumulative bool
+	seen       map[histogramKey]struct{} // series observed in this export
 }
 
 // accumulate builds the next state without committing it until transport succeeds.
 // Export holds the lock across this call and the send, preserving per-series order.
-func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics) seriesStates {
+func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics, now time.Time) seriesStates {
 	var exported seriesStates
 	if e.series != nil {
 		exported = *e.series
@@ -64,6 +73,7 @@ func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics) seriesStates {
 		exported:   exported,
 		next:       make(seriesStates, len(exported)),
 		cumulative: e.config.Temporality != models.Delta,
+		seen:       make(map[histogramKey]struct{}),
 	}
 	maps.Copy(acc.next, exported)
 	metrics := rm.ScopeMetrics[0].Metrics
@@ -83,19 +93,25 @@ func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics) seriesStates {
 			}
 			sum := merged[index].Data.(metricdata.Sum[float64])
 			for _, point := range observations {
-				addSumPoint(&sum, acc.sumPoint(m.Name, point))
+				addSumPoint(&sum, acc.sumPoint(metaOf(m), point))
 			}
 			merged[index].Data = sum
 		case metricdata.Histogram[float64]:
 			for i := range data.DataPoints {
-				acc.histogramPoint(m.Name, &data.DataPoints[i])
+				acc.histogramPoint(metaOf(m), &data.DataPoints[i])
 			}
 			m.Data = data
+			merged = append(merged, m)
+		case metricdata.Gauge[float64]:
+			for _, point := range data.DataPoints {
+				acc.gaugePoint(metaOf(m), point)
+			}
 			merged = append(merged, m)
 		default:
 			merged = append(merged, m)
 		}
 	}
+	merged = acc.unobserved(merged, now)
 	rm.ScopeMetrics[0].Metrics = merged
 	return acc.next
 }
@@ -119,9 +135,11 @@ func (a *accumulation) times(key histogramKey, state *seriesState, observed time
 }
 
 // sumPoint returns point as exported: the running total when cumulative.
-func (a *accumulation) sumPoint(name string, point metricdata.DataPoint[float64]) metricdata.DataPoint[float64] {
-	key := histogramKey{name: name, attributes: point.Attributes.Equivalent()}
+func (a *accumulation) sumPoint(meta seriesMeta, point metricdata.DataPoint[float64]) metricdata.DataPoint[float64] {
+	key := histogramKey{name: meta.name, attributes: point.Attributes.Equivalent()}
 	state, _ := a.state(key, point.Time)
+	state.meta, state.attributes, state.kind = meta, point.Attributes, kindSum
+	a.seen[key] = struct{}{}
 	state.sum += point.Value
 	point.StartTime, point.Time = a.times(key, &state, point.Time)
 	if a.cumulative {
@@ -134,9 +152,11 @@ func (a *accumulation) sumPoint(name string, point metricdata.DataPoint[float64]
 }
 
 // histogramPoint adds the series' earlier exports to point when cumulative.
-func (a *accumulation) histogramPoint(name string, point *metricdata.HistogramDataPoint[float64]) {
-	key := histogramKey{name: name, attributes: point.Attributes.Equivalent()}
+func (a *accumulation) histogramPoint(meta seriesMeta, point *metricdata.HistogramDataPoint[float64]) {
+	key := histogramKey{name: meta.name, attributes: point.Attributes.Equivalent()}
 	state, exists := a.state(key, point.Time)
+	state.meta, state.attributes, state.kind = meta, point.Attributes, kindHistogram
+	a.seen[key] = struct{}{}
 	if a.cumulative && exists {
 		addHistogram(point, &state.histogram)
 	}

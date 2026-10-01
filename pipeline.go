@@ -198,6 +198,10 @@ func (p *Pipeline) worker(id int) {
 			if len(batch) > 0 {
 				inFlight.record(p.exportInBackground(batch), &p.flushGen)
 				batch = batch[:0] // Reset slice, keep capacity
+			} else if id == 0 {
+				// One worker repeats the state of cumulative exporters, so an
+				// interval without observations still exports every series.
+				inFlight.record(p.exportIdleInBackground(), &p.flushGen)
 			}
 
 		default:
@@ -253,6 +257,30 @@ func (p *Pipeline) exportInBackground(batch []*Metric) error {
 // and must not inherit the pipeline's UDP write deadline.
 type exportTimeouter interface {
 	ExportTimeout() time.Duration
+}
+
+// idleExporter is implemented by exporters with cumulative state that must be
+// exported on every flush interval, even when nothing was observed in it.
+type idleExporter interface {
+	ExportIdle(ctx context.Context) error
+}
+
+// exportIdleInBackground asks every idleExporter to repeat its state. The
+// exporters bound themselves (they implement exportTimeouter).
+func (p *Pipeline) exportIdleInBackground() error {
+	var errs []error
+	for i, exporter := range p.exporters {
+		idle, ok := exporter.(idleExporter)
+		if !ok {
+			continue
+		}
+		if err := idle.ExportIdle(p.ctx); err != nil {
+			p.errors.Add(1)
+			p.exporterErrors[i].Add(1)
+			errs = append(errs, fmt.Errorf("exporter %s: %w", exporter.Name(), err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // processBatch sends a batch of metrics to all exporters with ctx and returns

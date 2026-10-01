@@ -149,8 +149,13 @@ func TestExporter_cumulative_separates_attribute_series(t *testing.T) {
 
 	// Then
 	sum := metricByName(t, collector.collections[1], "requests_total").Data.(metricdata.Sum[float64])
-	require.Len(t, sum.DataPoints, 1)
-	require.InDelta(t, float64(5), sum.DataPoints[0].Value, 0.001)
+	require.Len(t, sum.DataPoints, 2, "the unobserved series /b is repeated")
+	values := map[string]float64{}
+	for _, point := range sum.DataPoints {
+		route, _ := point.Attributes.Value("route")
+		values[route.AsString()] = point.Value
+	}
+	require.Equal(t, map[string]float64{"/a": 5, "/b": 4}, values)
 }
 
 func TestExporter_cumulative_point_time_advances_when_later_export_holds_older_observations(t *testing.T) {
