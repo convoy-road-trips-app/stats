@@ -88,7 +88,7 @@ func TestPipeline_Flush_exports_buffered_and_worker_batch_observations_before_re
 
 	// Then
 	require.NoError(t, err)
-	require.Equal(t, float64(250), counter.count("jobs_total"))
+	require.InDelta(t, float64(250), counter.count("jobs_total"), 0.001)
 }
 
 func TestPipeline_Flush_exports_pending_drop_counters(t *testing.T) {
@@ -105,7 +105,7 @@ func TestPipeline_Flush_exports_pending_drop_counters(t *testing.T) {
 
 	// Then
 	require.NoError(t, err)
-	require.Equal(t, float64(1), counter.count(droppedLabelsMetric))
+	require.InDelta(t, float64(1), counter.count(droppedLabelsMetric), 0.001)
 }
 
 func TestPipeline_Flush_passes_caller_context_to_exporters(t *testing.T) {
@@ -195,7 +195,7 @@ func TestPipeline_concurrent_Flush_and_Record_export_every_accepted_observation(
 
 	// Then
 	require.NoError(t, err)
-	require.Equal(t, float64(accepted.Load()), counter.count("jobs_total"))
+	require.InDelta(t, float64(accepted.Load()), counter.count("jobs_total"), 0.001)
 }
 
 func TestPipeline_Shutdown_exports_all_10k_accepted_observations(t *testing.T) {
@@ -221,7 +221,7 @@ func TestPipeline_Shutdown_exports_all_10k_accepted_observations(t *testing.T) {
 
 	// Then
 	require.NoError(t, err)
-	require.Equal(t, float64(10_000), counter.count("jobs_total"))
+	require.InDelta(t, float64(10_000), counter.count("jobs_total"), 0.001)
 }
 
 func TestPipeline_Shutdown_exports_ring_entries_workers_have_not_popped(t *testing.T) {
@@ -243,7 +243,7 @@ func TestPipeline_Shutdown_exports_ring_entries_workers_have_not_popped(t *testi
 
 	// Then
 	require.NoError(t, err)
-	require.Equal(t, float64(10_000), counter.count("jobs_total"))
+	require.InDelta(t, float64(10_000), counter.count("jobs_total"), 0.001)
 }
 
 func TestPipeline_Shutdown_passes_caller_context_to_exporters(t *testing.T) {

@@ -63,7 +63,7 @@ func TestNewClient_OTLP_exports_2000_series_and_drop_counter_when_2001st_series_
 	}
 	require.Len(t, seen, 2000)
 	require.NotContains(t, seen, strconv.Itoa(2000))
-	require.Equal(t, float64(1), dropped)
+	require.InDelta(t, float64(1), dropped, 0.001)
 }
 
 func collectJobSeries(request *collectormetricspb.ExportMetricsServiceRequest, seen map[string]struct{}, dropped *float64) {

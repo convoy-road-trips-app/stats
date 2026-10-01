@@ -131,7 +131,7 @@ func TestClient_OTLP_exports_trace_exemplars_only_for_counters_and_histograms_re
 		require.Len(t, exemplars, 1, name)
 		require.Equal(t, exemplarTraceID[:], exemplars[0].GetTraceId(), name)
 		require.Equal(t, exemplarSpanID[:], exemplars[0].GetSpanId(), name)
-		require.Equal(t, value, exemplars[0].GetAsDouble(), name)
+		require.InDelta(t, value, exemplars[0].GetAsDouble(), 0.001, name)
 		require.NotZero(t, exemplars[0].GetTimeUnixNano(), name)
 		for _, route := range []string{"unsampled", "none"} {
 			points, exemplars := receiver.of(name, route)

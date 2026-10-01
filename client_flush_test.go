@@ -97,9 +97,9 @@ func TestClient_Flush_delivers_observations_and_drop_counter_to_OTLP_receiver_be
 
 	// Then: the receiver already holds everything when Flush returns
 	require.NoError(t, err)
-	require.Equal(t, float64(3), receiver.sum("requests_total"))
-	require.Equal(t, float64(1), receiver.sum("jobs_total"))
-	require.Equal(t, float64(1), receiver.sum(droppedLabelsMetric))
+	require.InDelta(t, float64(3), receiver.sum("requests_total"), 0.001)
+	require.InDelta(t, float64(1), receiver.sum("jobs_total"), 0.001)
+	require.InDelta(t, float64(1), receiver.sum(droppedLabelsMetric), 0.001)
 }
 
 func TestClient_Shutdown_delivers_10k_accepted_counter_increments_to_OTLP_receiver(t *testing.T) {
@@ -122,7 +122,7 @@ func TestClient_Shutdown_delivers_10k_accepted_counter_increments_to_OTLP_receiv
 
 	// Then
 	require.NoError(t, err)
-	require.Equal(t, float64(10_000), receiver.sum("requests_total"))
+	require.InDelta(t, float64(10_000), receiver.sum("requests_total"), 0.001)
 }
 
 func TestClient_Flush_with_OTLP_retry_recovers_from_transient_unavailability(t *testing.T) {
@@ -140,7 +140,7 @@ func TestClient_Flush_with_OTLP_retry_recovers_from_transient_unavailability(t *
 	// Then
 	require.NoError(t, err)
 	require.Equal(t, int64(2), receiver.attempts.Load())
-	require.Equal(t, float64(2), receiver.sum("requests_total"))
+	require.InDelta(t, float64(2), receiver.sum("requests_total"), 0.001)
 }
 
 func TestClient_Flush_returns_deadline_exceeded_while_OTLP_retry_waits(t *testing.T) {

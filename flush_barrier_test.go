@@ -94,7 +94,7 @@ func TestPipeline_Flush_reports_failed_in_flight_export_of_pre_call_observations
 
 	// Then: the pre-call observations that were buffered went out with the caller
 	// ctx, and the lost in-flight ones make Flush fail instead of reporting success
-	require.Equal(t, float64(3), exporter.counter.count("pre_call_total"))
+	require.InDelta(t, float64(3), exporter.counter.count("pre_call_total"), 0.001)
 	require.ErrorIs(t, err, exporter.inFlightErr)
 }
 
@@ -112,7 +112,7 @@ func TestPipeline_Shutdown_reports_failed_in_flight_export_of_pre_call_observati
 	err := within(t, func() error { return <-result })
 
 	// Then
-	require.Equal(t, float64(3), exporter.counter.count("pre_call_total"))
+	require.InDelta(t, float64(3), exporter.counter.count("pre_call_total"), 0.001)
 	require.ErrorIs(t, err, exporter.inFlightErr)
 }
 
@@ -165,7 +165,7 @@ func TestPipeline_Shutdown_exports_observations_whose_Record_raced_with_shutdown
 
 		// Then: every Record that returned nil was exported
 		require.NoError(t, err)
-		require.Equal(t, float64(accepted.Load()), counter.count("jobs_total"))
+		require.InDelta(t, float64(accepted.Load()), counter.count("jobs_total"), 0.001)
 	}
 }
 
@@ -190,7 +190,7 @@ func TestPipeline_Shutdown_exports_a_completely_full_ring(t *testing.T) {
 
 	// Then
 	require.NoError(t, err)
-	require.Equal(t, float64(8), counter.count("jobs_total"))
+	require.InDelta(t, float64(8), counter.count("jobs_total"), 0.001)
 }
 
 func TestPipeline_Flush_returns_while_producers_keep_filling_the_ring(t *testing.T) {
@@ -226,5 +226,5 @@ func TestPipeline_Flush_returns_while_producers_keep_filling_the_ring(t *testing
 
 	// Then
 	require.NoError(t, err)
-	require.Equal(t, float64(64), counter.count("pre_call_total"))
+	require.InDelta(t, float64(64), counter.count("pre_call_total"), 0.001)
 }
