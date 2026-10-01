@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -19,7 +20,9 @@ func TestNewRingBuffer(t *testing.T) {
 		{"power of 2", 1024, 1024},
 		{"non-power of 2", 1000, 1024},
 		{"small", 10, 16},
-		{"zero", 0, 1},
+		// one slot cannot tell a published item from a released slot
+		{"one", 1, 2},
+		{"zero", 0, 2},
 	}
 
 	for _, tt := range tests {
@@ -250,9 +253,18 @@ func TestRingBuffer_Push_never_reports_full_below_capacity_while_consumers_pop(t
 }
 
 func TestRingBuffer_delivers_every_pushed_item_exactly_once_while_the_buffer_is_full(t *testing.T) {
+	for _, capacity := range []int{1, 8} {
+		t.Run(fmt.Sprintf("capacity %d", capacity), func(t *testing.T) {
+			assertPushPopExactlyOnce(t, capacity)
+		})
+	}
+}
+
+func assertPushPopExactlyOnce(t *testing.T, capacity int) {
+	t.Helper()
 	// Given: a tiny ring that producers keep at capacity while consumers pop
 	const producers, perProducer = 4, 20_000
-	rb := NewRingBuffer(8)
+	rb := NewRingBuffer(capacity)
 	deliveries := make([]atomic.Int32, producers*perProducer)
 	take := func(item any) { deliveries[item.(int)].Add(1) }
 	stop := make(chan struct{})

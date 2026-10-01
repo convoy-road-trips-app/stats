@@ -39,8 +39,10 @@ type slot struct {
 // NewRingBuffer creates a new ring buffer with the specified capacity
 // Capacity must be a power of 2 for optimal performance
 func NewRingBuffer(capacity int) *RingBuffer {
-	// Round up to next power of 2
-	capCount := nextPowerOfTwo(uint64(capacity))
+	// Round up to next power of 2, and to at least 2: with one slot the
+	// published value (pos+1) equals the released value (pos+capacity), so a
+	// writer could overwrite an item its reader has claimed but not read.
+	capCount := max(nextPowerOfTwo(uint64(capacity)), 2)
 
 	slots := make([]slot, capCount)
 	for i := range slots {

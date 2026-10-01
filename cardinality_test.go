@@ -155,19 +155,20 @@ func TestRecord_releases_series_slot_when_memory_reservation_fails(t *testing.T)
 }
 
 func TestRecord_releases_series_slot_when_buffer_is_full(t *testing.T) {
-	// Given: a one-slot buffer already holding the first admitted series, and room for two series
+	// Given: a two-slot buffer (the smallest ring) holding two admitted series, and room for three series
 	cfg := DefaultConfig()
-	cfg.MaxCardinality = 2
-	cfg.BufferSize = 1
+	cfg.MaxCardinality = 3
+	cfg.BufferSize = 2
 	p := newUnstartedPipeline(t, cfg)
 	require.NoError(t, p.Record(context.Background(), observation("jobs_total", attribute.Int("id", 1))))
-	require.ErrorIs(t, p.Record(context.Background(), observation("jobs_total", attribute.Int("id", 2))), ErrBufferFull)
+	require.NoError(t, p.Record(context.Background(), observation("jobs_total", attribute.Int("id", 2))))
+	require.ErrorIs(t, p.Record(context.Background(), observation("jobs_total", attribute.Int("id", 3))), ErrBufferFull)
 	require.Len(t, p.buffer.PopBatch(1), 1)
 
 	// When: another new series arrives once the buffer has room
-	err := p.Record(context.Background(), observation("jobs_total", attribute.Int("id", 3)))
+	err := p.Record(context.Background(), observation("jobs_total", attribute.Int("id", 4)))
 
-	// Then
+	// Then: the rejected series 3 gave its slot back, so series 4 fits the limit of three
 	require.NoError(t, err)
 }
 
