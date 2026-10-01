@@ -45,10 +45,11 @@ func (a *accumulation) unobserved(metrics []metricdata.Metrics, now time.Time) [
 	if !a.cumulative {
 		return metrics
 	}
-	for key, state := range a.next {
+	for key := range a.next {
 		if _, observed := a.seen[key]; observed {
 			continue
 		}
+		state := a.next[key]
 		start, at := a.times(key, &state, now)
 		a.next[key] = state
 		meta := state.meta
