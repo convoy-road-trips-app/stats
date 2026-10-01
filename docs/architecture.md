@@ -1,5 +1,185 @@
 # High-Performance Stats Library Architecture
 
+## Current implementation
+
+The diagrams in this section were drawn from the source (`client.go`, `pipeline.go`, `drain.go`, `cardinality.go`, `exporters/`, `otel/`). Where the original design notes further down differ, these diagrams and the source win. They describe structure and control flow only; they make no throughput, latency or delivery claims.
+
+### Components
+
+Both APIs feed one shared pipeline. Recording runs on the caller's goroutine; export runs on the worker goroutines.
+
+```mermaid
+flowchart LR
+    subgraph sources["Metric sources"]
+        legacy["Legacy API<br/>stats.Client<br/>Counter, Gauge, Histogram"]
+        otel["OTel API<br/>otel.MeterProvider<br/>instruments wrap a stats.Client"]
+        obs["Observable instruments<br/>callbacks run every<br/>collection interval"]
+        rt["Runtime metrics collector<br/>opt-in: WithRuntimeMetrics"]
+    end
+
+    subgraph record["Synchronous (caller goroutine): Pipeline.Record"]
+        rec["Record<br/>see recording flow"]
+        ring[("Ring buffer<br/>bounded by BufferSize<br/>and MaxMemoryBytes")]
+    end
+
+    subgraph async["Asynchronous (worker goroutines)"]
+        workers["Worker pool<br/>default 4 workers<br/>batch on size or FlushInterval"]
+    end
+
+    subgraph backends["Exporters, fed the same batch"]
+        dd["Datadog<br/>DogStatsD over UDP"]
+        prom["Prometheus<br/>StatsD over UDP"]
+        cw["CloudWatch<br/>EMF over UDP<br/>to the CloudWatch Agent"]
+        otlp["OTLP<br/>gRPC or HTTP"]
+    end
+
+    otel --> legacy
+    obs --> otel
+    rt --> legacy
+    legacy --> rec --> ring
+    ring --> workers
+    workers --> dd & prom & cw & otlp
+    otlp --> collector["OTel Collector or backend"]
+```
+
+Only the exporters that are enabled in the configuration are created. The OTel instruments discard the error returned by the client, so a dropped observation is visible only in `Stats()` and the drop counters.
+
+### Recording flow
+
+What `Pipeline.Record` does to one observation before it returns. Every rejection returns an error to the caller (the OTel API discards it) and releases the metric object.
+
+```mermaid
+flowchart TD
+    start(["Client.Counter, Gauge or Histogram<br/>or an OTel instrument"]) --> closed{"Client or pipeline<br/>closed?"}
+    closed -- yes --> eclosed["ErrClientClosed"]
+    closed -- no --> input{"Name and value<br/>valid?"}
+    input -- no --> einput["validation error"]
+    input -- yes --> rate{"Rate limit enabled<br/>and exceeded?"}
+    rate -- yes --> erate["ErrRateLimitExceeded"]
+    rate -- no --> stamp["Set timestamp<br/>attach trace exemplar when<br/>the span is sampled"]
+    stamp --> admit{"Tag key valid?"}
+    admit -- no --> ekey["ErrInvalidTagKey"]
+    admit -- yes --> trim["Cap values at 256 runes<br/>keep first 10 keys"]
+    trim --> series{"New series over<br/>MaxCardinality?"}
+    series -- yes --> eseries["ErrCardinalityLimit<br/>drop counter incremented"]
+    series -- no --> reserve["Reserve a series slot"]
+    reserve --> mem{"Over<br/>MaxMemoryBytes?"}
+    mem -- yes --> emem["ErrMemoryLimit, counted as dropped"]
+    mem -- no --> strat{"DropStrategy"}
+    strat -- DropNewest --> push{"Buffer has room?"}
+    push -- no --> efull["ErrBufferFull, counted as dropped<br/>incoming metric dropped"]
+    push -- yes --> ok
+    strat -- DropOldest --> pushold{"Can replace the<br/>oldest entry?"}
+    pushold -- yes --> ok["Enqueued, series slot committed<br/>Record returns nil"]
+    pushold -- no --> efull2["ErrBufferFull, counted as dropped<br/>queue left intact"]
+    efull --> rel["Series slot released"]
+    efull2 --> rel
+    emem --> rel
+```
+
+Recording takes a read lock that `Shutdown` uses to stop new observations, atomic operations on the buffer, and a per-metric mutex only when a new series is first seen. It does not wait for exporters, but it is not wait-free and it still allocates in places, so there is no zero-allocation or wait-free guarantee. A nil return means the observation was buffered, not that it was exported.
+
+### Export and exporter fan-out
+
+Workers pop from the ring, collect a batch and export it. Batches are handed to every exporter at the same time.
+
+```mermaid
+flowchart TD
+    subgraph worker["One worker goroutine, repeated"]
+        pop["PopBatch from ring<br/>100 items, 500 when the<br/>buffer is over half full and<br/>AdaptiveBatching is on"]
+        batch["Append to batch"]
+        trig{"Batch full<br/>or FlushInterval tick?"}
+        counters["On tick, append pending<br/>telemetry_dropped_labels_total"]
+        pop --> batch --> trig
+        trig -- tick --> counters --> proc
+        trig -- full --> proc
+        trig -- neither --> pop
+    end
+
+    proc["processBatch<br/>context bounded by UDPTimeout<br/>(100 ms default) for background exports"]
+
+    subgraph fan["One goroutine per exporter, then wait for all"]
+        e1["Datadog"]
+        e2["Prometheus"]
+        e3["CloudWatch"]
+        e4["OTLP"]
+    end
+
+    proc --> e1 & e2 & e3 & e4
+
+    subgraph udp["UDP exporters: shared BaseExporter"]
+        cb{"Circuit breaker<br/>allows the call?"}
+        ser["Serialize batch<br/>DogStatsD, StatsD or EMF"]
+        send["SendBatch through the<br/>UDP connection pool"]
+        cb -- yes --> ser --> send
+        cb -- open --> uerr["Error returned"]
+    end
+
+    subgraph otlpx["OTLP exporter"]
+        conv["Convert to OTLP<br/>aggregate histograms"]
+        acc["Cumulative or delta<br/>accumulation"]
+        sdk["OTel SDK exporter<br/>gRPC or HTTP, ExportTimeout 10 s"]
+        conv --> acc --> sdk
+    end
+
+    e1 & e2 & e3 --> cb
+    e4 --> conv
+
+    send --> done
+    uerr --> done
+    sdk --> done
+    done["wg.Wait: the batch completes when<br/>the slowest exporter returns"]
+    done --> count["Failure or recovered panic:<br/>counted per exporter and in total"]
+    count --> result["Errors joined and returned<br/>to Flush or Shutdown<br/>metrics return to the pool"]
+```
+
+Because `processBatch` waits for every exporter, a slow exporter delays the completion of its batch and of that worker's loop; exporters are isolated from each other's errors and panics, not from each other's latency. Background exports have no retry at the pipeline level; the OTLP exporter has transport-level retry only when configured with `WithOTLPRetry`.
+
+### Lifecycle: Flush and Shutdown
+
+`Flush` and `Shutdown` take the caller's context and are bounded by it. They reach every worker through a per-worker channel, one worker at a time.
+
+```mermaid
+sequenceDiagram
+    participant App as Caller
+    participant C as Client or MeterProvider
+    participant P as Pipeline
+    participant W as Workers 0..N
+    participant E as Exporters
+
+    Note over App,E: Flush(ctx)
+    App->>C: Flush(ctx)
+    Note right of C: MeterProvider.ForceFlush runs<br/>observable callbacks first
+    C->>P: Flush(ctx)
+    P->>W: flush request, sent to each worker in turn
+    W->>E: export partial batch, ring contents (at most<br/>one ring capacity) and drop counters, with ctx
+    E-->>W: result
+    W-->>P: ack, joined with a background export failure<br/>that was in flight during the call
+    P-->>App: nil, joined export errors, or ctx error
+
+    Note over App,E: Shutdown(ctx)
+    App->>C: Shutdown(ctx)
+    C->>C: stop runtime collector (and observable loop)
+    C->>P: Shutdown(ctx)
+    P->>P: stop accepting: Record returns ErrClientClosed
+    P->>W: stop request, sent to each worker in turn
+    W->>E: drain batch and ring with ctx, then exit
+    P->>P: cancel pipeline context<br/>workers that never got the stop drop their batch
+    P->>W: wait for workers, bounded by ctx
+    P->>E: exporter Shutdown(ctx)
+    P-->>App: nil, joined errors, or error wrapping the ctx error
+```
+
+Use a context with a deadline for both calls: if it ends first, the call returns the context error and observations not yet exported are dropped.
+
+Do not call `Flush` concurrently with `Shutdown`. A `Flush` racing a `Shutdown` may wait on a worker that `Shutdown` has already stopped. Our reading is that it is released with `ErrClientClosed` once `Shutdown`'s broadcast ends, possibly after flushing only some workers, but no committed test proves it and an unbounded wait is not ruled out, so always pass a context with a deadline. This is an accepted, documented limitation, tracked in [issue #4](https://github.com/convoy-road-trips-app/stats/issues/4) and in the [limitations](otel_compliance.md#limitations). Call `Flush` while the client is in use, and `Shutdown` once, after your other goroutines have stopped recording.
+
+---
+
+## Original design notes
+
+The sections below are the original design notes. They describe a binary serializer, a UDP packet packer, extra drop strategies and a health endpoint that are not part of the current implementation, and the performance figures are design targets rather than measurements of this repository. Use the diagrams above for the current structure.
+
 ## System Overview
 
 ```
