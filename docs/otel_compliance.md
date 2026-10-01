@@ -164,7 +164,7 @@ These rules apply to the OTLP exporter (`stats.WithOTLP`) in both modes.
 
 ### Resource
 
-`service.name`, `deployment.environment` and `service.version` resolve in this order (later wins): `OTEL_RESOURCE_ATTRIBUTES` < `OTEL_SERVICE_NAME` / `DEPLOYMENT_ENVIRONMENT` / `SERVICE_VERSION` < explicit options (`WithServiceName`, `WithEnvironment`, `WithOTLPResourceAttributes`, `otel.WithResource`). Missing identity falls back to `unknown_service` / `unknown`.
+`service.name`, `deployment.environment` and `service.version` resolve in this order (later wins): `OTEL_RESOURCE_ATTRIBUTES` < `OTEL_SERVICE_NAME` / `DEPLOYMENT_ENVIRONMENT` / `SERVICE_VERSION` < explicit options (`WithServiceName`, `WithEnvironment`, `WithOTLPResourceAttributes`, `otel.WithResource`). Missing identity falls back to `unknown_service` / `unknown`. `OTEL_RESOURCE_ATTRIBUTES` values are percent-decoded as in the OTel SDK; a malformed escape is kept unchanged.
 
 The resource schema URL is exported as `ResourceMetrics.schema_url`. It comes from the `otel.WithResource` resource (for example `resource.NewWithAttributes(semconv.SchemaURL, ...)`) or from `stats.WithOTLPResourceSchemaURL`; it is empty by default.
 
