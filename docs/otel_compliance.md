@@ -151,6 +151,7 @@ These rules apply to the OTLP exporter (`stats.WithOTLP`) in both modes.
 - Sums (counters) and histograms are exported with **cumulative** temporality by default. `stats.WithTemporality(stats.Delta)` opts into delta.
 - Cumulative state is kept per (metric name, attribute set) inside the exporter. A failed export still advances the state, so the next cumulative point includes the interval the collector did not receive.
 - Workers export batches concurrently, so a later export can carry observations older than the previous point of the same series. Cumulative points are therefore stamped at least 1 ms after the previous point of the series. Without this, Prometheus drops the larger total as a duplicate sample.
+- A delta point starts where the previous point of the series ended. When a late export holds only older observations, its `Time` is raised to that start, so `StartTime <= Time` always holds; delta points get no 1 ms spacing.
 - Prometheus' OTLP receiver (used by `grafana/otel-lgtm`) ingests only cumulative sums and histograms; delta series do not reach the query surface there.
 
 ### Histograms
@@ -163,6 +164,12 @@ These rules apply to the OTLP exporter (`stats.WithOTLP`) in both modes.
 ### Resource
 
 `service.name`, `deployment.environment` and `service.version` resolve in this order (later wins): `OTEL_RESOURCE_ATTRIBUTES` < `OTEL_SERVICE_NAME` / `DEPLOYMENT_ENVIRONMENT` / `SERVICE_VERSION` < explicit options (`WithServiceName`, `WithEnvironment`, `WithOTLPResourceAttributes`, `otel.WithResource`). Missing identity falls back to `unknown_service` / `unknown`.
+
+The resource schema URL is exported as `ResourceMetrics.schema_url`. It comes from the `otel.WithResource` resource (for example `resource.NewWithAttributes(semconv.SchemaURL, ...)`) or from `stats.WithOTLPResourceSchemaURL`; it is empty by default.
+
+### Metric Metadata
+
+`Description` and `Unit` are exported on the OTLP metric for observable instruments (`metric.WithDescription` / `metric.WithUnit`) and for legacy observations recorded with `stats.WithDescription` / `stats.WithUnit`. Synchronous OTel instruments do not export them yet (see [Limitations](#limitations)).
 
 ### Attributes and Cardinality (all exporters)
 
@@ -303,6 +310,7 @@ provider, _ := otel.NewMeterProvider(
 5. **Counters accept negative values** in the legacy API (`Client.Counter`); they are not rejected.
 6. **No OTLP environment configuration**: `OTEL_EXPORTER_OTLP_ENDPOINT` and related variables are not read; configure the endpoint with `WithOTLP`.
 7. **Prometheus OTLP ingestion requires cumulative temporality** (the default); `WithTemporality(stats.Delta)` series are dropped by Prometheus' OTLP receiver.
+8. **Synchronous instruments drop description and unit**: `metric.WithDescription` / `metric.WithUnit` on synchronous OTel instruments are accepted but not exported; observable instruments export them.
 
 ### Planned Features
 
