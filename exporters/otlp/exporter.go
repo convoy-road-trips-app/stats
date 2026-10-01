@@ -198,12 +198,12 @@ func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Me
 		if m.Timestamp.After(point.Time) {
 			point.Time = m.Timestamp
 		}
-		min, _ := point.Min.Value()
-		if m.Value < min {
+		lowest, _ := point.Min.Value()
+		if m.Value < lowest {
 			point.Min = metricdata.NewExtrema(m.Value)
 		}
-		max, _ := point.Max.Value()
-		if m.Value > max {
+		highest, _ := point.Max.Value()
+		if m.Value > highest {
 			point.Max = metricdata.NewExtrema(m.Value)
 		}
 		bucket := sort.Search(len(bounds), func(i int) bool { return m.Value <= bounds[i] })
