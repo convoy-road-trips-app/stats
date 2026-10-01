@@ -302,6 +302,10 @@ provider, _ := otel.NewMeterProvider(
 
 ## Limitations
 
+### SemVer exception (v1.1.0)
+
+v1.1.0 is released as a minor version although it changes behavior observable by v1.0.x consumers. The Go API only gains symbols (`gorelease` reports it valid), but: OTLP sums and histograms are cumulative by default (were delta); malformed attribute keys are rejected (`ErrInvalidTagKey`); the D10 limits apply (10 attributes, 256-rune values, 2000 series per metric); and `Shutdown`/`Close` drain the buffer before returning. A v2 release would need the module path `/v2`, which the project does not adopt. Pin v1.0.1 to keep the old behavior, or use `WithTemporality(stats.Delta)` for delta export. See the CHANGELOG.
+
 ### Current Limitations
 
 1. **UpDownCounter is a gauge**: synchronous `UpDownCounter.Add(n)` records a gauge whose value is `n`, the latest increment, not a running total. Observable UpDownCounters export the observed value as a gauge. Neither is exported as a non-monotonic OTLP Sum.
@@ -313,6 +317,7 @@ provider, _ := otel.NewMeterProvider(
 7. **Prometheus OTLP ingestion requires cumulative temporality** (the default); `WithTemporality(stats.Delta)` series are dropped by Prometheus' OTLP receiver.
 8. **Synchronous instruments drop description and unit**: `metric.WithDescription` / `metric.WithUnit` on synchronous OTel instruments are accepted but not exported; observable instruments export them.
 9. **Values are float64**: the pipeline carries every value as `float64`, so `Int64*` instruments (synchronous and observable) are exported as OTLP double points, and integers with magnitude above 2^53 (9007199254740992) are rounded to the nearest representable double.
+10. **Cumulative timestamps can drift into the future**: each cumulative point of a series is stamped at least 1 ms after the previous one (see [Temporality](#temporality)). A series exported more than 1000 times per second therefore runs ahead of wall time, for example about 480 s after 2 minutes at 5000 exports/s, and Prometheus can reject it once the drift passes its future-sample tolerance. The library does not bound the drift; keep the export rate per series below 1000/s (a longer `WithFlushInterval`, fewer explicit `Flush` calls).
 
 ### Planned Features
 

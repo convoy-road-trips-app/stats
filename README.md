@@ -124,6 +124,17 @@ func main() {
 go get github.com/convoy-road-trips-app/stats
 ```
 
+### Upgrading from v1.0.x (SemVer exception)
+
+v1.1.0 only adds Go API, but it changes behavior that v1.0.x code can observe, and is released as a minor version on purpose (v2 would need a `/v2` module path):
+
+- OTLP sums and histograms are **cumulative by default**; use `stats.WithTemporality(stats.Delta)` for the old delta export.
+- **Malformed attribute keys are rejected** (`ErrInvalidTagKey`).
+- **Cardinality limits** apply: 10 attributes per observation, 256-rune values, 2000 series per metric.
+- `Shutdown`/`Close` **drain** buffered metrics before returning.
+
+Pin `v1.0.1` if you need the previous behavior. Details: [CHANGELOG](CHANGELOG.md) and [docs/otel_compliance.md](docs/otel_compliance.md#limitations).
+
 ## Configuration
 
 ### Basic Configuration

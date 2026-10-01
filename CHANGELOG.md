@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 OpenTelemetry conformance release. See [docs/otel_compliance.md](docs/otel_compliance.md) for the full semantics and limitations.
 
+### SemVer exception
+
+This release is v1.1.0, not v2.0.0, although it changes behavior that v1.0.x consumers can observe. The public Go API only gains symbols (`gorelease -base=v1.0.1 -version=v1.1.0` reports v1.1.0 as valid), but these behaviors differ from v1.0.1:
+
+- OTLP sums and histograms are **cumulative by default** (they were delta).
+- **Malformed attribute keys are rejected** with `ErrInvalidTagKey` (they were accepted).
+- **D10 cardinality limits** apply: 10 attributes per observation, 256-rune values, 2000 series per metric (`ErrCardinalityLimit`).
+- `Shutdown`/`Close` **drain** buffered metrics before returning, so they can take up to the context deadline.
+
+A v2 release would need the module path `github.com/convoy-road-trips-app/stats/v2`, which the project does not adopt. Pin `v1.0.1` if you depend on the old behavior; `WithTemporality(stats.Delta)` restores delta export. Treat these four changes as a documented exception to the "adheres to Semantic Versioning" statement above.
+
 ### Added
 
 - **OTLP explicit-bucket histograms**: observations are aggregated per attribute set with count, sum, min, max and bucket counts. Default bounds are the D9 seconds buckets (`0.005 … 10`); `WithHistogramBuckets` overrides them (finite, strictly increasing).
@@ -48,6 +59,7 @@ OpenTelemetry conformance release. See [docs/otel_compliance.md](docs/otel_compl
 - `Client.Counter` accepts negative values.
 - `OTEL_EXPORTER_OTLP_ENDPOINT` is not read; no views or custom readers.
 - Background exports, OTLP included, are bounded by `WithUDPTimeout` (100 ms default).
+- Cumulative OTLP timestamps can run ahead of wall time: each point of a series is stamped at least 1 ms after the previous one, so a series exported more than 1000 times per second drifts into the future (about 480 s after 2 minutes at 5000 exports/s), and Prometheus can reject it once the drift passes its future-sample tolerance. Keep the export rate per series below 1000/s (raise `WithFlushInterval`, or avoid frequent `Flush`); it is not bounded in the library.
 
 ## [1.0.0] - 2025-12-05
 
