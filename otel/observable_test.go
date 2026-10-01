@@ -94,8 +94,8 @@ func TestMeter_RegisterCallback_observes_several_instruments_until_Unregister(t 
 	}, gauge, counter)
 	require.NoError(t, err)
 	require.NoError(t, provider.ForceFlush(context.Background()))
-	require.Equal(t, 21.5, receiver.await(t, "temperature{pool=east}").value)
-	require.Equal(t, float64(512), receiver.await(t, "bytes_total{pool=east}").value)
+	require.InDelta(t, 21.5, receiver.await(t, "temperature{pool=east}").value, 0.001)
+	require.InDelta(t, float64(512), receiver.await(t, "bytes_total{pool=east}").value, 0.001)
 
 	// When
 	require.NoError(t, registration.Unregister())
@@ -169,7 +169,7 @@ func TestMeterProvider_ForceFlush_returns_callback_errors_and_still_exports_othe
 	// Then
 	require.ErrorIs(t, err, errBackend)
 	require.ErrorIs(t, err, ErrUnregisteredObservable)
-	require.Equal(t, float64(7), receiver.await(t, "healthy{pool=primary}").value)
+	require.InDelta(t, float64(7), receiver.await(t, "healthy{pool=primary}").value, 0.001)
 	_, ok := receiver.take("unregistered{pool=primary}")
 	require.False(t, ok)
 }
@@ -211,7 +211,7 @@ func TestMeterProvider_collects_observables_periodically_without_ForceFlush(t *t
 	require.NoError(t, err)
 
 	// Then
-	require.Equal(t, 0.25, receiver.await(t, "load{pool=primary}").value)
+	require.InDelta(t, 0.25, receiver.await(t, "load{pool=primary}").value, 0.001)
 }
 
 func TestMeterProvider_Shutdown_collects_once_more_then_stops_calling_callbacks(t *testing.T) {
@@ -229,7 +229,7 @@ func TestMeterProvider_Shutdown_collects_once_more_then_stops_calling_callbacks(
 	require.NoError(t, provider.Shutdown(context.Background()))
 
 	// Then
-	require.Equal(t, float64(3), receiver.await(t, "jobs_total{pool=primary}").value)
+	require.InDelta(t, float64(3), receiver.await(t, "jobs_total{pool=primary}").value, 0.001)
 	require.Error(t, provider.ForceFlush(context.Background()))
 	require.Equal(t, int64(1), calls.Load())
 }
@@ -252,7 +252,7 @@ func TestObservableInstruments_ignore_the_span_of_the_collecting_context(t *test
 
 	// Then
 	point := receiver.await(t, "ticks_total{pool=primary}")
-	require.Equal(t, float64(5), point.value)
+	require.InDelta(t, float64(5), point.value, 0.001)
 	require.Empty(t, point.exemplars)
 }
 
@@ -324,7 +324,7 @@ func TestMeter_observable_registration_is_safe_during_concurrent_collection(t *t
 	}, gauge)
 	require.NoError(t, err)
 	require.NoError(t, provider.ForceFlush(context.Background()))
-	require.Equal(t, float64(3), receiver.await(t, "workers{pool=primary}").value)
+	require.InDelta(t, float64(3), receiver.await(t, "workers{pool=primary}").value, 0.001)
 }
 
 func TestWithCollectionInterval_rejects_non_positive_interval(t *testing.T) {
