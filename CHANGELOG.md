@@ -26,7 +26,8 @@ OpenTelemetry conformance release. See [docs/otel_compliance.md](docs/otel_compl
 - **OTLP sums and histograms are cumulative by default** (previously delta). Use `WithTemporality(stats.Delta)` for the old behavior. Prometheus' OTLP receiver ingests only cumulative series.
 - **Malformed attribute keys are rejected**: a key must be one or more identifier segments joined by single dots, `^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$`. OTel semantic-convention keys such as `http.method` and `http.route` are accepted and exported unchanged. Keys with an empty segment (`bad..key`, `.key`, `key.`), a segment starting with a digit, or any other character (`-`, space, `/`, non-ASCII) return `ErrInvalidTagKey` and nothing is recorded, for every backend; v1.0.1 accepted them. OTel instruments drop such observations silently.
 - Datadog, Prometheus (StatsD) and CloudWatch EMF receive the same sanitized and trimmed attributes as OTLP.
-- `Client.Shutdown`/`Close` now drain buffered metrics, and Flush/Shutdown report failures of background exports already in flight.
+- `Client.Shutdown`/`Close` now drain buffered metrics, and Flush/Shutdown report failures of background exports already in flight. When the runtime collector and the pipeline both fail, `Shutdown` returns both errors joined.
+- `DropOldest` evicts the oldest metric only when the incoming one takes its place, and `WithBufferSize(1)` holds two metrics; `WithOTLP` copies `HistogramBuckets`.
 
 ### Fixed
 
