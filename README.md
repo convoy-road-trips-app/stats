@@ -214,7 +214,7 @@ OTLP export semantics (v1.1.0):
 
 #### Attribute and cardinality limits (all backends)
 
-- Attribute keys must match `^[a-zA-Z_][a-zA-Z0-9_]*$`, otherwise the observation is rejected with `stats.ErrInvalidTagKey` (use `http_method`, not `http.method`).
+- Attribute keys must be identifier segments joined by single dots, `^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$`, so OTel semantic-convention keys such as `http.method` are accepted unchanged. Other keys (`bad..key`, `http-method`) reject the observation with `stats.ErrInvalidTagKey`.
 - Values are capped at 256 runes, and only the first 10 keys in lexical order are kept.
 - At most 2000 attribute sets per metric name by default (`stats.WithMaxCardinality`); new series beyond that return `stats.ErrCardinalityLimit`.
 - Drops are counted in `telemetry_dropped_labels_total{reason}`.

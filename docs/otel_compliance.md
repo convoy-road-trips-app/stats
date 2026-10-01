@@ -168,7 +168,8 @@ These rules apply to the OTLP exporter (`stats.WithOTLP`) in both modes.
 
 Enforced in the shared pipeline, so Datadog, Prometheus (StatsD) and CloudWatch EMF receive the same sanitized attributes:
 
-- Attribute keys must match `^[a-zA-Z_][a-zA-Z0-9_]*$`. An observation with any other key is rejected with `stats.ErrInvalidTagKey` and nothing is recorded. Dotted OTel semantic-convention keys such as `http.method` are rejected; use `http_method`. Metric names may still contain dots.
+- Attribute keys must be one or more identifier segments joined by single dots: `^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$`. OTel semantic-convention keys such as `http.method`, `http.route` and `http.response.status_code` are accepted and exported unchanged; keys are never rewritten. An observation with any other key (`bad..key`, `.key`, `key.`, `http.1x`, `http-method`, non-ASCII) is rejected with `stats.ErrInvalidTagKey`: nothing is recorded, no series slot is used and no drop is counted. This is stricter than the OTel specification, which allows any non-empty key, so semantic-convention templates with free-form segments (for example `http.request.header.content-type`) are rejected. Metric names are not checked by this rule.
+- Prometheus' OTLP translation maps both `http.method` and `http_method` to the label `http_method`; do not send both spellings on one metric. The Prometheus StatsD exporter writes each attribute into the dotted metric path as `key_value`, so a dotted key adds path segments, as in v1.0.1.
 - String values are capped at 256 runes. Only the first 10 keys in lexical order are kept.
 - Each metric name admits at most 2000 distinct attribute sets by default (`stats.WithMaxCardinality`). Observations of new series beyond the limit return `stats.ErrCardinalityLimit`.
 - Drops are counted in `telemetry_dropped_labels_total{reason="label_limit"|"series_limit"}`.
@@ -345,7 +346,7 @@ See [`examples/otel/main.go`](../examples/otel/main.go) for a complete working e
 2. **Check buffer size**: Increase `WithBufferSize()` if dropping metrics
 3. **Check flush interval**: Metrics are batched; call `Flush(ctx)` / `ForceFlush(ctx)` or wait for the flush interval
 4. **Inspect pipeline stats**: `client.Stats().Pipeline` reports processed, dropped and per-exporter error counts
-5. **Check attribute keys**: dotted keys such as `http.method` are rejected (`ErrInvalidTagKey`); OTel instruments drop those observations silently
+5. **Check attribute keys**: keys with empty segments (`bad..key`), digit-led segments or characters outside `[A-Za-z0-9_.]` are rejected (`ErrInvalidTagKey`); OTel instruments drop those observations silently. Dotted keys such as `http.method` are valid
 6. **Prometheus via OTLP**: keep the default cumulative temporality; delta series are not ingested
 
 ### Performance Issues
