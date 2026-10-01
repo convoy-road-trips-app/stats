@@ -195,3 +195,46 @@ func metricByName(t *testing.T, rm metricdata.ResourceMetrics, name string) metr
 	t.Fatalf("metric %q missing", name)
 	return metricdata.Metrics{}
 }
+
+func TestExporter_cumulative_histogram_keeps_extrema_of_earlier_exports(t *testing.T) {
+	// Given: an earlier export saw 0.5 and 8, the next batch only 2
+	start := time.Unix(100, 0)
+	collector := &collectingExporter{}
+	exporter := &Exporter{config: &models.OTLPConfig{Enabled: true}, otlpExporter: collector}
+	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
+		{Name: "duration_seconds", Type: models.MetricTypeHistogram, Value: 0.5, Timestamp: start},
+		{Name: "duration_seconds", Type: models.MetricTypeHistogram, Value: 8, Timestamp: start},
+	}))
+
+	// When
+	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
+		{Name: "duration_seconds", Type: models.MetricTypeHistogram, Value: 2, Timestamp: start.Add(time.Second)},
+	}))
+
+	// Then
+	point := metricByName(t, collector.collections[1], "duration_seconds").Data.(metricdata.Histogram[float64]).DataPoints[0]
+	require.Equal(t, uint64(3), point.Count)
+	require.Equal(t, metricdata.NewExtrema(0.5), point.Min)
+	require.Equal(t, metricdata.NewExtrema(8.0), point.Max)
+}
+
+func TestExporter_delta_histogram_starts_where_the_previous_export_ended(t *testing.T) {
+	// Given
+	start := time.Unix(100, 0)
+	collector := &collectingExporter{}
+	exporter := &Exporter{config: &models.OTLPConfig{Enabled: true, Temporality: models.Delta}, otlpExporter: collector}
+	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
+		{Name: "duration_seconds", Type: models.MetricTypeHistogram, Value: 0.5, Timestamp: start},
+	}))
+
+	// When
+	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
+		{Name: "duration_seconds", Type: models.MetricTypeHistogram, Value: 2, Timestamp: start.Add(time.Second)},
+	}))
+
+	// Then
+	point := metricByName(t, collector.collections[1], "duration_seconds").Data.(metricdata.Histogram[float64]).DataPoints[0]
+	require.Equal(t, uint64(1), point.Count)
+	require.Equal(t, start, point.StartTime)
+	require.Equal(t, metricdata.NewExtrema(2.0), point.Min)
+}

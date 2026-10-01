@@ -1,6 +1,7 @@
 package otlp
 
 import (
+	"maps"
 	"time"
 
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -35,14 +36,23 @@ func (s *seriesState) pointTime(observed, exported time.Time, cumulative bool) t
 	return observed
 }
 
+// accumulation builds the series state of one export on top of the state
+// committed by the previous successful export.
+type accumulation struct {
+	exported   map[histogramKey]seriesState
+	next       map[histogramKey]seriesState
+	cumulative bool
+}
+
 // accumulate builds the next state without committing it until transport succeeds.
 // Export holds the lock across this call and the send, preserving per-series order.
 func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics) map[histogramKey]seriesState {
-	next := make(map[histogramKey]seriesState, len(e.series))
-	for key, state := range e.series {
-		next[key] = state
+	acc := accumulation{
+		exported:   e.series,
+		next:       make(map[histogramKey]seriesState, len(e.series)),
+		cumulative: e.config.Temporality != models.Delta,
 	}
-	cumulative := e.config.Temporality != models.Delta
+	maps.Copy(acc.next, e.series)
 	metrics := rm.ScopeMetrics[0].Metrics
 	merged := make([]metricdata.Metrics, 0, len(metrics))
 	sumIndexes := make(map[string]int)
@@ -59,64 +69,12 @@ func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics) map[histogramKey]s
 			}
 			sum := merged[index].Data.(metricdata.Sum[float64])
 			for _, point := range observations {
-				key := histogramKey{name: m.Name, attributes: point.Attributes.Equivalent()}
-				state, exists := next[key]
-				if !exists {
-					state.start = point.Time
-				}
-				state.sum += point.Value
-				point.StartTime = state.start
-				if !cumulative && !state.lastTime.IsZero() {
-					point.StartTime = state.lastTime
-				}
-				point.Time = state.pointTime(point.Time, e.series[key].lastTime, cumulative)
-				next[key] = state
-				if cumulative {
-					point.Value = state.sum
-				} else {
-					state.sum = 0
-					next[key] = state
-				}
-				addSumPoint(&sum, point)
+				addSumPoint(&sum, acc.sumPoint(m.Name, point))
 			}
 			merged[index].Data = sum
 		case metricdata.Histogram[float64]:
 			for i := range data.DataPoints {
-				point := &data.DataPoints[i]
-				key := histogramKey{name: m.Name, attributes: point.Attributes.Equivalent()}
-				state, exists := next[key]
-				if !exists {
-					state.start = point.Time
-				}
-				if cumulative && exists {
-					point.Count += state.histogram.Count
-					point.Sum += state.histogram.Sum
-					for bucket := range point.BucketCounts {
-						point.BucketCounts[bucket] += state.histogram.BucketCounts[bucket]
-					}
-					if old, ok := state.histogram.Min.Value(); ok {
-						if current, _ := point.Min.Value(); old < current {
-							point.Min = metricdata.NewExtrema(old)
-						}
-					}
-					if old, ok := state.histogram.Max.Value(); ok {
-						if current, _ := point.Max.Value(); old > current {
-							point.Max = metricdata.NewExtrema(old)
-						}
-					}
-				}
-				point.StartTime = state.start
-				if !cumulative && !state.lastTime.IsZero() {
-					point.StartTime = state.lastTime
-				}
-				point.Time = state.pointTime(point.Time, e.series[key].lastTime, cumulative)
-				if cumulative {
-					state.histogram = *point
-					state.histogram.Exemplars = nil // exemplars belong to one export interval
-				} else {
-					state.histogram = metricdata.HistogramDataPoint[float64]{}
-				}
-				next[key] = state
+				acc.histogramPoint(m.Name, &data.DataPoints[i])
 			}
 			m.Data = data
 			merged = append(merged, m)
@@ -125,7 +83,76 @@ func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics) map[histogramKey]s
 		}
 	}
 	rm.ScopeMetrics[0].Metrics = merged
-	return next
+	return acc.next
+}
+
+// state returns the series state of key, starting a new series at observed.
+func (a *accumulation) state(key histogramKey, observed time.Time) (seriesState, bool) {
+	state, exists := a.next[key]
+	if !exists {
+		state.start = observed
+	}
+	return state, exists
+}
+
+// times returns the StartTime and Time of the series' next point.
+func (a *accumulation) times(key histogramKey, state *seriesState, observed time.Time) (start, at time.Time) {
+	start = state.start
+	if !a.cumulative && !state.lastTime.IsZero() {
+		start = state.lastTime
+	}
+	return start, state.pointTime(observed, a.exported[key].lastTime, a.cumulative)
+}
+
+// sumPoint returns point as exported: the running total when cumulative.
+func (a *accumulation) sumPoint(name string, point metricdata.DataPoint[float64]) metricdata.DataPoint[float64] {
+	key := histogramKey{name: name, attributes: point.Attributes.Equivalent()}
+	state, _ := a.state(key, point.Time)
+	state.sum += point.Value
+	point.StartTime, point.Time = a.times(key, &state, point.Time)
+	if a.cumulative {
+		point.Value = state.sum
+	} else {
+		state.sum = 0
+	}
+	a.next[key] = state
+	return point
+}
+
+// histogramPoint adds the series' earlier exports to point when cumulative.
+func (a *accumulation) histogramPoint(name string, point *metricdata.HistogramDataPoint[float64]) {
+	key := histogramKey{name: name, attributes: point.Attributes.Equivalent()}
+	state, exists := a.state(key, point.Time)
+	if a.cumulative && exists {
+		addHistogram(point, &state.histogram)
+	}
+	point.StartTime, point.Time = a.times(key, &state, point.Time)
+	if a.cumulative {
+		state.histogram = *point
+		state.histogram.Exemplars = nil // exemplars belong to one export interval
+	} else {
+		state.histogram = metricdata.HistogramDataPoint[float64]{}
+	}
+	a.next[key] = state
+}
+
+// addHistogram adds the counts, sum and extrema of previous to point.
+func addHistogram(point, previous *metricdata.HistogramDataPoint[float64]) {
+	point.Count += previous.Count
+	point.Sum += previous.Sum
+	for bucket := range point.BucketCounts {
+		point.BucketCounts[bucket] += previous.BucketCounts[bucket]
+	}
+	if old, ok := previous.Min.Value(); ok {
+		if current, _ := point.Min.Value(); old < current {
+			point.Min = metricdata.NewExtrema(old)
+		}
+	}
+	if old, ok := previous.Max.Value(); ok {
+		if current, _ := point.Max.Value(); old > current {
+			point.Max = metricdata.NewExtrema(old)
+		}
+	}
 }
 
 // addSumPoint merges point into the datapoint of its series. The latest sampled
