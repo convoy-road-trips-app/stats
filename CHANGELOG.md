@@ -30,9 +30,10 @@ OpenTelemetry conformance release. See [docs/otel_compliance.md](docs/otel_compl
 
 ### Fixed
 
-- Cumulative OTLP points of a series are stamped at least 1 ms after the previous point. Concurrent workers could export a larger total with an older or same-millisecond timestamp, which Prometheus dropped as a duplicate sample.
+- Cumulative OTLP points of a series are stamped at least 1 ms after the previous point. Concurrent workers could export a larger total with an older or same-millisecond timestamp, which Prometheus dropped as a duplicate sample. A sum point merged from a batch is stamped no earlier than the newest observation it includes.
 - With cumulative temporality, a failed OTLP export no longer loses its interval: the next point includes it.
 - `RingBuffer.Push` no longer reports a spurious `ErrBufferFull` under concurrent pops.
+- `RingBuffer` no longer loses or duplicates an item while full. `Push` never waits for a consumer to release a slot (it reports the buffer full), and `DropOldest` removes the oldest item with the new non-waiting `RingBuffer.TryPop`.
 
 ### Known Limitations
 

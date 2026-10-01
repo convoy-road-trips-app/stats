@@ -152,6 +152,7 @@ These rules apply to the OTLP exporter (`stats.WithOTLP`) in both modes.
 - Cumulative state is kept per (metric name, attribute set) inside the exporter. A failed export still advances the state, so the next cumulative point includes the interval the collector did not receive.
 - Workers export batches concurrently, so a later export can carry observations older than the previous point of the same series. Cumulative points are therefore stamped at least 1 ms after the previous point of the series. Without this, Prometheus drops the larger total as a duplicate sample.
 - A delta point starts where the previous point of the series ended. When a late export holds only older observations, its `Time` is raised to that start, so `StartTime <= Time` always holds; delta points get no 1 ms spacing.
+- A sum point merged from several observations of one batch is stamped at the newest of them, whatever their order in the batch.
 - Prometheus' OTLP receiver (used by `grafana/otel-lgtm`) ingests only cumulative sums and histograms; delta series do not reach the query surface there.
 
 ### Histograms
