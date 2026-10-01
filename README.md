@@ -222,7 +222,7 @@ OTLP export semantics (v1.1.0):
 
 #### Flush and shutdown
 
-`client.Flush(ctx)` and `provider.ForceFlush(ctx)` export everything buffered with the caller's context; `Shutdown(ctx)` drains the buffer before returning. Use them at the end of each AWS Lambda invocation.
+`client.Flush(ctx)` and `provider.ForceFlush(ctx)` export everything buffered with the caller's context; `Shutdown(ctx)` drains the buffer before returning. Use them at the end of each AWS Lambda invocation. A `stats.Recorder` has no `Flush`, so existing implementations keep compiling; `*Client` and `*NoOpClient` implement the separate `stats.Flusher` interface, so use `if f, ok := recorder.(stats.Flusher); ok { err = f.Flush(ctx) }`.
 
 #### Runtime Metrics (Go CPU + Heap)
 

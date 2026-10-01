@@ -20,8 +20,22 @@ type Recorder interface {
 	Close() error
 }
 
+// Flusher is implemented by recorders that can export what they have buffered
+// before the process or invocation ends. It is separate from Recorder so that
+// existing Recorder implementations keep compiling. *Client and *NoOpClient
+// implement it; check for it with a type assertion:
+//
+//	if f, ok := recorder.(stats.Flusher); ok {
+//		err = f.Flush(ctx)
+//	}
+type Flusher interface {
+	Flush(ctx context.Context) error
+}
+
 // Ensure implementations satisfy the interface
 var (
 	_ Recorder = (*Client)(nil)
 	_ Recorder = (*NoOpClient)(nil)
+	_ Flusher  = (*Client)(nil)
+	_ Flusher  = (*NoOpClient)(nil)
 )

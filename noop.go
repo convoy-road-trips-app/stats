@@ -45,6 +45,11 @@ func (n *NoOpClient) Stats() ClientStats {
 	return ClientStats{}
 }
 
+// Flush does nothing and returns nil.
+func (n *NoOpClient) Flush(ctx context.Context) error {
+	return nil
+}
+
 func (n *NoOpClient) Shutdown(ctx context.Context) error {
 	return nil
 }
