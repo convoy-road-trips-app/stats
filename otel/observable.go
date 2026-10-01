@@ -9,6 +9,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/embedded"
+
+	"github.com/convoy-road-trips-app/stats"
 )
 
 // observableKind selects how observed values reach the stats pipeline.
@@ -27,11 +29,10 @@ const (
 
 // observable is the state shared by every observable instrument kind.
 type observable struct {
-	meter       *Meter
-	name        string
-	description string
-	unit        string
-	kind        observableKind
+	meter    *Meter
+	name     string
+	metadata []stats.MetricOption // description and unit, added to every record
+	kind     observableKind
 
 	mu     sync.Mutex                     // guards totals and orders counter records
 	totals map[attribute.Distinct]float64 // last recorded total per counter series
@@ -52,7 +53,7 @@ type observableInstrument interface {
 // the next increase.
 func (o *observable) record(ctx context.Context, value float64, attrs attribute.Set) error {
 	client := o.meter.provider.client
-	opts := convertAttributes(attrs)
+	opts := append(convertAttributes(attrs), o.metadata...)
 	var err error
 	switch o.kind {
 	case observableCounter:
@@ -96,7 +97,10 @@ func observableFor[T observableInstrument](m *Meter, spec *observableSpec, wrap 
 		m.mu.Unlock()
 		return existing.(T), nil
 	}
-	inst := wrap(&observable{meter: m, name: spec.name, description: spec.description, unit: spec.unit, kind: spec.kind})
+	inst := wrap(&observable{
+		meter: m, name: spec.name, kind: spec.kind,
+		metadata: []stats.MetricOption{stats.WithDescription(spec.description), stats.WithUnit(spec.unit)},
+	})
 	m.instruments[spec.key] = inst
 	m.mu.Unlock()
 
