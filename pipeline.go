@@ -125,51 +125,36 @@ func (p *Pipeline) enqueue(m *Metric) error {
 	}
 
 	// Try to push to buffer (non-blocking)
+	if p.cfg.DropStrategy == DropOldest {
+		return p.enqueueDropOldest(m, size)
+	}
 	if !p.buffer.Push(m) {
-		// Buffer is full - rollback memory reservation
+		// Buffer is full - rollback memory reservation and drop the new metric
 		p.memUsage.Add(-size)
-
-		// Handle based on drop strategy
-		if p.cfg.DropStrategy == DropOldest {
-			// Remove oldest item to make room, without waiting on a producer
-			oldMetric := p.buffer.TryPop()
-			if oldMetric != nil {
-				// Release old metric's memory and return to pool
-				if oldM, ok := oldMetric.(*Metric); ok {
-					p.memUsage.Add(-oldM.EstimateSize())
-					ReleaseMetric(oldM)
-				}
-			}
-
-			// Try pushing again with new memory reservation
-			for {
-				current := p.memUsage.Load()
-				newUsage := current + size
-				if newUsage > p.cfg.MaxMemoryBytes {
-					p.dropped.Add(1)
-					return ErrMemoryLimit
-				}
-				if p.memUsage.CompareAndSwap(current, newUsage) {
-					break
-				}
-			}
-
-			if !p.buffer.Push(m) {
-				// Still failed, rollback and drop
-				p.memUsage.Add(-size)
-				p.dropped.Add(1)
-				return ErrBufferFull
-			}
-			// Successfully added after dropping oldest
-			return nil
-		}
-
-		// Default: DropNewest - just drop the new metric
 		p.dropped.Add(1)
 		return ErrBufferFull
 	}
 
 	// Successfully pushed to buffer with memory reserved
+	return nil
+}
+
+// enqueueDropOldest publishes m, evicting the oldest buffered metric when the
+// buffer is full. Eviction and publication are one buffer step, so a metric is
+// evicted only if m takes its place: when the buffer cannot take m without
+// waiting on another goroutine, m is dropped and the queue is left intact.
+// The caller has reserved size bytes for m.
+func (p *Pipeline) enqueueDropOldest(m *Metric, size int64) error {
+	evicted, ok := p.buffer.PushDropOldest(m)
+	if !ok {
+		p.memUsage.Add(-size)
+		p.dropped.Add(1)
+		return ErrBufferFull
+	}
+	if old, isMetric := evicted.(*Metric); isMetric {
+		p.memUsage.Add(-old.EstimateSize())
+		ReleaseMetric(old)
+	}
 	return nil
 }
 

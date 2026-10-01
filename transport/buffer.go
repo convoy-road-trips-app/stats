@@ -42,7 +42,7 @@ func NewRingBuffer(capacity int) *RingBuffer {
 	// Round up to next power of 2, and to at least 2: with one slot the
 	// published value (pos+1) equals the released value (pos+capacity), so a
 	// writer could overwrite an item its reader has claimed but not read.
-	capCount := max(nextPowerOfTwo(uint64(capacity)), 2)
+	capCount := max(nextPowerOfTwo(uint64(max(capacity, 0))), 2)
 
 	slots := make([]slot, capCount)
 	for i := range slots {
@@ -54,6 +54,15 @@ func NewRingBuffer(capacity int) *RingBuffer {
 		mask:     capCount - 1,
 	}
 }
+
+// attempt is the outcome of one lock-free step of a push.
+type attempt int
+
+const (
+	retry    attempt = iota // stale position or lost CAS
+	pushed                  // the item was published
+	rejected                // the item cannot be published without waiting
+)
 
 // Push adds an item to the buffer. Returns false if buffer is full (non-blocking)
 func (rb *RingBuffer) Push(item any) bool {
@@ -67,28 +76,110 @@ func (rb *RingBuffer) Push(item any) bool {
 		readPos := rb.readPos.Load()
 		writePos := rb.writePos.Load()
 
-		// Check if buffer is full
-		if writePos-readPos >= rb.capacity {
-			rb.dropped.Add(1)
-			return false
+		result := rejected // the buffer is full
+		if writePos-readPos < rb.capacity {
+			result = rb.pushAt(writePos, item)
 		}
-
-		s := &rb.slots[writePos&rb.mask]
-		switch seq := s.seq.Load(); {
-		case seq < writePos:
-			// The slot still holds the previous lap's item: its reader claimed
-			// it but has not released it yet. Report full instead of waiting
-			// on that reader, so Push never depends on a consumer running.
-			rb.dropped.Add(1)
-			return false
-		case seq == writePos && rb.writePos.CompareAndSwap(writePos, writePos+1):
-			s.item = item
-			s.seq.Store(writePos + 1)
-			rb.added.Add(1)
+		switch result {
+		case pushed:
 			return true
+		case rejected:
+			rb.dropped.Add(1)
+			return false
+		case retry:
+			// Stale position or lost CAS: loop again
 		}
-		// Stale writePos or lost CAS: retry
 	}
+}
+
+// PushDropOldest adds an item to the buffer, evicting the oldest item when
+// the buffer is full, and never waits on another goroutine. The eviction and
+// the push are one step: an item is evicted only if item takes its place, and
+// the evicted item is returned so the caller can release it.
+//
+// It returns ok=false, and leaves the buffered items untouched, when item is
+// nil or when publishing it would mean waiting: the write slot is still held
+// by a reader that has not released it, or the oldest item's writer has not
+// published it yet.
+func (rb *RingBuffer) PushDropOldest(item any) (evicted any, ok bool) {
+	if item == nil {
+		return nil, false
+	}
+
+	for {
+		readPos := rb.readPos.Load()
+		writePos := rb.writePos.Load()
+
+		var result attempt
+		if writePos-readPos < rb.capacity {
+			result = rb.pushAt(writePos, item)
+		} else {
+			result, evicted = rb.replaceOldest(readPos, writePos, item)
+		}
+		switch result {
+		case pushed:
+			return evicted, true
+		case rejected:
+			rb.dropped.Add(1)
+			return nil, false
+		case retry:
+			// Stale position or lost CAS: loop again
+		}
+	}
+}
+
+// pushAt publishes item at writePos of a buffer that is not full.
+func (rb *RingBuffer) pushAt(writePos uint64, item any) attempt {
+	s := &rb.slots[writePos&rb.mask]
+	switch seq := s.seq.Load(); {
+	case seq < writePos:
+		// The slot still holds the previous lap's item: its reader claimed
+		// it but has not released it yet. Report full instead of waiting
+		// on that reader, so Push never depends on a consumer running.
+		return rejected
+	case seq == writePos && rb.writePos.CompareAndSwap(writePos, writePos+1):
+		s.item = item
+		s.seq.Store(writePos + 1)
+		rb.added.Add(1)
+		return pushed
+	}
+	return retry
+}
+
+// replaceOldest evicts the item at readPos of a full buffer and publishes item
+// at writePos. On a full buffer writePos = readPos+capacity, so both
+// positions share one slot: taking the oldest item as its reader also makes
+// the slot ours to write, and no other writer can claim writePos meanwhile.
+func (rb *RingBuffer) replaceOldest(readPos, writePos uint64, item any) (result attempt, evicted any) {
+	s := &rb.slots[readPos&rb.mask]
+	switch seq := s.seq.Load(); {
+	case seq <= readPos:
+		// The oldest item's writer has not published it yet.
+		return rejected, nil
+	case seq != readPos+1 || writePos != readPos+rb.capacity:
+		return retry, nil
+	}
+
+	// Mark the slot unpublished before claiming readPos, so that readers wait
+	// (or TryPop reports empty) and writers report full until item is
+	// published.
+	if !s.seq.CompareAndSwap(readPos+1, readPos) {
+		return retry, nil
+	}
+	if !rb.readPos.CompareAndSwap(readPos, readPos+1) {
+		// A reader that saw the published item claimed it first and will
+		// release the slot itself, which overwrites the mark.
+		return retry, nil
+	}
+
+	old := s.item
+	rb.writePos.Store(writePos + 1) // nobody else can claim it, see above
+	s.item = item
+	s.seq.Store(writePos + 1)
+	rb.removed.Add(1)
+	rb.dropped.Add(1)
+	rb.added.Add(1)
+	return pushed, old
 }
 
 // Pop removes and returns an item from the buffer. Returns nil if buffer is
