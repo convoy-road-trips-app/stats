@@ -312,6 +312,7 @@ provider, _ := otel.NewMeterProvider(
 6. **No OTLP environment configuration**: `OTEL_EXPORTER_OTLP_ENDPOINT` and related variables are not read; configure the endpoint with `WithOTLP`.
 7. **Prometheus OTLP ingestion requires cumulative temporality** (the default); `WithTemporality(stats.Delta)` series are dropped by Prometheus' OTLP receiver.
 8. **Synchronous instruments drop description and unit**: `metric.WithDescription` / `metric.WithUnit` on synchronous OTel instruments are accepted but not exported; observable instruments export them.
+9. **Values are float64**: the pipeline carries every value as `float64`, so `Int64*` instruments (synchronous and observable) are exported as OTLP double points, and integers with magnitude above 2^53 (9007199254740992) are rounded to the nearest representable double.
 
 ### Planned Features
 

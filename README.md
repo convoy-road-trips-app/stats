@@ -401,6 +401,8 @@ gauge, _ := meter.Float64Gauge("memory",
 
 OTLP exports the description and unit of observable instruments; synchronous instruments accept them but do not export them yet.
 
+Values are carried as `float64`, so `Int64*` instruments are exported as OTLP double points and are exact only up to 2^53.
+
 See [docs/otel_compliance.md](docs/otel_compliance.md) for complete OTel documentation.
 
 ## Testing

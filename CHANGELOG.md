@@ -39,6 +39,7 @@ OpenTelemetry conformance release. See [docs/otel_compliance.md](docs/otel_compl
 
 - `UpDownCounter` (sync and observable) is exported as a gauge; the sync `Add(n)` gauge value is the latest increment, not a running total.
 - Synchronous OTel instruments do not export `WithDescription` / `WithUnit`.
+- Values are carried as `float64`: `Int64*` instruments are exported as OTLP double points, exact only up to 2^53.
 - `Client.Timing` records milliseconds while the default buckets are in seconds.
 - `Client.Counter` accepts negative values.
 - `OTEL_EXPORTER_OTLP_ENDPOINT` is not read; no views or custom readers.
