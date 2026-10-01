@@ -121,8 +121,10 @@ func main() {
 ## Installation
 
 ```bash
-go get github.com/convoy-road-trips-app/stats
+go get github.com/convoy-road-trips-app/stats@v1.1.0
 ```
+
+Usage, flush/shutdown and an options reference: **[docs/usage.md](docs/usage.md)**. A runnable collector + Prometheus stack: [examples/docker](examples/docker/README.md).
 
 ### Upgrading from v1.0.x (SemVer exception)
 
@@ -146,8 +148,8 @@ client, err := stats.NewClient(
     stats.WithEnvironment("production"),
 
     // Performance tuning
-    stats.WithBufferSize(16384),        // Ring buffer capacity (default: 8192)
-    stats.WithWorkers(4),                // Worker goroutines (default: 2)
+    stats.WithBufferSize(16384),        // Ring buffer capacity (default: 16384)
+    stats.WithWorkers(4),                // Worker goroutines (default: 4)
     stats.WithFlushInterval(100*time.Millisecond),
 
     // Memory limits

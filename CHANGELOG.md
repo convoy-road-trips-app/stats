@@ -30,6 +30,7 @@ A v2 release would need the module path `github.com/convoy-road-trips-app/stats/
 - **Exemplars**: counter and histogram observations under a sampled span carry `trace_id`/`span_id` exemplars in OTLP.
 - **Observable instruments**: `Int64/Float64 ObservableCounter`, `ObservableUpDownCounter` and `ObservableGauge`, `Meter.RegisterCallback`, and `otel.WithCollectionInterval` (default 10s).
 - **Metric metadata**: `WithDescription` and `WithUnit` metric options; OTLP exports the description and unit of observable instruments and of observations recorded with these options.
+- **Usage guide and examples**: `docs/usage.md` (install, minimal usage, options reference), `examples/quickstart` (the guide's snippet, kept identical by a test) and `examples/docker` (demo service, OpenTelemetry Collector and Prometheus with `_bucket` series, tested in CI behind the `docker` build tag).
 - **LGTM CI job**: the `grafana/otel-lgtm` integration tests run in CI again and check histogram `_bucket{le}` series and counts at the Prometheus query API.
 
 ### Changed
