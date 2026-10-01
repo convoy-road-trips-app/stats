@@ -131,8 +131,8 @@ func (p *Pipeline) enqueue(m *Metric) error {
 
 		// Handle based on drop strategy
 		if p.cfg.DropStrategy == DropOldest {
-			// Remove oldest item to make room
-			oldMetric := p.buffer.Pop()
+			// Remove oldest item to make room, without waiting on a producer
+			oldMetric := p.buffer.TryPop()
 			if oldMetric != nil {
 				// Release old metric's memory and return to pool
 				if oldM, ok := oldMetric.(*Metric); ok {
