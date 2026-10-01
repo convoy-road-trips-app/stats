@@ -121,7 +121,7 @@ func main() {
 ## Installation
 
 ```bash
-go get github.com/convoy-road-trips-app/stats@v1.1.0
+go get github.com/convoy-road-trips-app/stats@v1.2.1
 ```
 
 Usage, flush/shutdown and an options reference: **[docs/usage.md](docs/usage.md)**. A runnable collector + Prometheus stack: [examples/docker](examples/docker/README.md).
