@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **OTLP exports were cancelled by the 100ms UDP deadline**: background flushes bounded every exporter by `UDPTimeout`, so any real OTLP round trip (gRPC dial plus export) failed with `context deadline exceeded`, the batch was dropped, and a Shutdown during the export reported that error. OTLP exports are now bounded by `OTLPConfig.ExportTimeout` (default 10s).
+
 ## [1.2.0] - 2026-10-01
 
 Documentation-only release. There are **no code or behavior changes**: the Go API, exports and defaults are identical to v1.1.0, and the module is unchanged apart from its version. Upgrading from v1.1.0 needs no action.

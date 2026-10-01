@@ -113,17 +113,21 @@ func newHTTPExporter(config *models.OTLPConfig) (*otlpmetrichttp.Exporter, error
 	return exp, nil
 }
 
+// ExportTimeout is the per-export deadline: the configured ExportTimeout, or 10s.
+func (e *Exporter) ExportTimeout() time.Duration {
+	if e.config.ExportTimeout == 0 {
+		return 10 * time.Second
+	}
+	return e.config.ExportTimeout
+}
+
 // Export sends metrics to OTLP collector
 func (e *Exporter) Export(ctx context.Context, metrics []*models.Metric) error {
 	if !e.config.Enabled || len(metrics) == 0 {
 		return nil
 	}
 
-	timeout := e.config.ExportTimeout
-	if timeout == 0 {
-		timeout = 10 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, e.ExportTimeout())
 	defer cancel()
 
 	bounds := e.config.HistogramBuckets

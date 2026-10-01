@@ -241,15 +241,29 @@ func (p *Pipeline) appendPopped(batch []*Metric, items []any) []*Metric {
 
 // exportInBackground exports a batch the worker loop collected on its own.
 // Failures are counted in Stats and reported by an overlapping Flush.
+//
+// The UDPTimeout deadline applies to exporters that do not bound themselves.
+// An exporter implementing exportTimeouter (OTLP) is bounded by its own timeout
+// instead: a 100ms UDP write deadline cancels every real network round trip.
 func (p *Pipeline) exportInBackground(batch []*Metric) error {
-	ctx, cancel := context.WithTimeout(p.ctx, p.cfg.UDPTimeout)
-	defer cancel()
-	return p.processBatch(ctx, batch)
+	return p.processBatchWith(p.ctx, batch, p.cfg.UDPTimeout)
+}
+
+// exportTimeouter is implemented by exporters that bound their own exports
+// and must not inherit the pipeline's UDP write deadline.
+type exportTimeouter interface {
+	ExportTimeout() time.Duration
 }
 
 // processBatch sends a batch of metrics to all exporters with ctx and returns
 // their joined errors. The metrics are returned to the pool afterwards.
 func (p *Pipeline) processBatch(ctx context.Context, batch []*Metric) error {
+	return p.processBatchWith(ctx, batch, 0)
+}
+
+// processBatchWith is processBatch with a default per-export timeout (0 for
+// none) for exporters that do not implement exportTimeouter.
+func (p *Pipeline) processBatchWith(ctx context.Context, batch []*Metric, defaultTimeout time.Duration) error {
 	if len(batch) == 0 {
 		return nil
 	}
@@ -274,7 +288,13 @@ func (p *Pipeline) processBatch(ctx context.Context, batch []*Metric) error {
 				}
 			}()
 
-			if err := exp.Export(ctx, batch); err != nil {
+			exportCtx := ctx
+			if _, bounded := exp.(exportTimeouter); !bounded && defaultTimeout > 0 {
+				var cancel context.CancelFunc
+				exportCtx, cancel = context.WithTimeout(ctx, defaultTimeout)
+				defer cancel()
+			}
+			if err := exp.Export(exportCtx, batch); err != nil {
 				p.errors.Add(1)
 				p.exporterErrors[idx].Add(1)
 				errs[idx] = fmt.Errorf("exporter %s: %w", exp.Name(), err)
