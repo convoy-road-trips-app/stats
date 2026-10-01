@@ -142,6 +142,9 @@ func WithStatsOptions(opts ...stats.Option) MeterProviderOption {
 func (mp *MeterProvider) replaceClient() error {
 	clientOptions := append([]stats.Option(nil), mp.clientOptions...)
 	clientOptions = append(clientOptions, stats.WithOTLPResourceAttributes(mp.resource.Attributes()...))
+	if schemaURL := mp.resource.SchemaURL(); schemaURL != "" {
+		clientOptions = append(clientOptions, stats.WithOTLPResourceSchemaURL(schemaURL))
+	}
 	client, err := stats.NewClient(clientOptions...)
 	if err != nil {
 		return fmt.Errorf("create stats client: %w", err)

@@ -2,6 +2,7 @@ package otel
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -214,5 +215,44 @@ func TestWithResource_is_exported_to_OTLP_receiver(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("OTLP receiver did not receive WithResource attribute team=payments: %v", resourceAttributes)
+	}
+}
+
+func TestWithResource_schema_URL_is_exported_to_OTLP_receiver(t *testing.T) {
+	const schemaURL = "https://opentelemetry.io/schemas/1.26.0"
+	for name, option := range map[string]MeterProviderOption{
+		"WithResource": WithResource(resource.NewWithAttributes(schemaURL, attribute.String("team", "payments"))),
+		"stats option beside a schemaless WithResource": func(mp *MeterProvider) error {
+			return errors.Join(
+				WithStatsOptions(stats.WithOTLPResourceSchemaURL(schemaURL))(mp),
+				WithResource(resource.NewWithAttributes("", attribute.String("team", "payments")))(mp),
+			)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Given
+			receiver := newMetricsReceiver(t)
+			provider := receiver.provider(t, option)
+			counter, err := provider.Meter("test").Int64Counter("requests_total")
+			if err != nil {
+				t.Fatalf("create counter: %v", err)
+			}
+			counter.Add(context.Background(), 1)
+
+			// When
+			if err := provider.ForceFlush(context.Background()); err != nil {
+				t.Fatalf("force flush: %v", err)
+			}
+
+			// Then
+			receiver.mu.Lock()
+			defer receiver.mu.Unlock()
+			if len(receiver.log) == 0 {
+				t.Fatal("OTLP receiver got no export")
+			}
+			if got := receiver.log[0].ResourceMetrics[0].GetSchemaUrl(); got != schemaURL {
+				t.Fatalf("ResourceMetrics.schema_url = %q, want %q", got, schemaURL)
+			}
+		})
 	}
 }
