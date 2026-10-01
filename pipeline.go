@@ -30,9 +30,12 @@ type Pipeline struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	// Shutdown coordination
+	// Shutdown coordination. closeMu orders closing shutdownCh after every
+	// Record that already passed its shutdown check has finished enqueueing.
 	shutdownOnce sync.Once
 	shutdownCh   chan struct{}
+	closeMu      sync.RWMutex
+	flushGen     atomic.Uint64 // incremented by every Flush and Shutdown
 
 	// flushes holds one flush channel per worker started by Start
 	flushes []chan flushRequest
@@ -75,7 +78,8 @@ func (p *Pipeline) Start() error {
 
 // Record adds a metric to the pipeline (non-blocking)
 func (p *Pipeline) Record(ctx context.Context, m *Metric) error {
-	// Check if pipeline is shutting down
+	p.closeMu.RLock()
+	defer p.closeMu.RUnlock()
 	select {
 	case <-p.shutdownCh:
 		return ErrClientClosed
@@ -178,6 +182,7 @@ func (p *Pipeline) worker(id int) {
 		flushes = p.flushes[id]
 	}
 
+	var inFlight exportFailure
 	// Batch buffer for efficient processing
 	batch := make([]*Metric, 0, 100)
 	ticker := time.NewTicker(p.cfg.FlushInterval)
@@ -195,7 +200,7 @@ func (p *Pipeline) worker(id int) {
 			return
 
 		case request := <-flushes:
-			request.done <- p.drain(request.ctx, batch)
+			request.done <- errors.Join(inFlight.since(request.gen), p.drain(request.ctx, batch))
 			batch = batch[:0]
 			if request.stop {
 				return
@@ -205,7 +210,7 @@ func (p *Pipeline) worker(id int) {
 			// Flush on timer
 			batch = p.cardinality.appendDropCounters(batch)
 			if len(batch) > 0 {
-				p.exportInBackground(batch)
+				inFlight.record(p.exportInBackground(batch), &p.flushGen)
 				batch = batch[:0] // Reset slice, keep capacity
 			}
 
@@ -230,7 +235,7 @@ func (p *Pipeline) worker(id int) {
 
 			// Flush if batch is full
 			if len(batch) >= cap(batch) {
-				p.exportInBackground(batch)
+				inFlight.record(p.exportInBackground(batch), &p.flushGen)
 				batch = batch[:0]
 			}
 		}
@@ -249,11 +254,11 @@ func (p *Pipeline) appendPopped(batch []*Metric, items []any) []*Metric {
 }
 
 // exportInBackground exports a batch the worker loop collected on its own.
-// Failures are counted in Stats; no caller is waiting for them.
-func (p *Pipeline) exportInBackground(batch []*Metric) {
+// Failures are counted in Stats and reported by an overlapping Flush.
+func (p *Pipeline) exportInBackground(batch []*Metric) error {
 	ctx, cancel := context.WithTimeout(p.ctx, p.cfg.UDPTimeout)
 	defer cancel()
-	_ = p.processBatch(ctx, batch)
+	return p.processBatch(ctx, batch)
 }
 
 // processBatch sends a batch of metrics to all exporters with ctx and returns

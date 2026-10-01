@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 )
 
 // drainChunk bounds the size of one export while a worker drains the ring.
@@ -13,13 +14,38 @@ const drainChunk = 500
 // pending drop counters with the caller's context.
 type flushRequest struct {
 	ctx  context.Context
+	gen  uint64       // flushGen value taken when the Flush/Shutdown started
 	stop bool         // the worker exits after acknowledging (Shutdown)
 	done chan<- error // buffered for every worker, so an ack never blocks
 }
 
+// exportFailure is a worker's latest failed background export and the
+// flushGen value when it ended.
+type exportFailure struct {
+	err error
+	gen uint64
+}
+
+func (f *exportFailure) record(err error, gen *atomic.Uint64) {
+	if err != nil {
+		f.err, f.gen = err, gen.Load()
+	}
+}
+
+// since returns the failure if the export ended after flush generation gen
+// started: it may have carried observations accepted before that call.
+func (f *exportFailure) since(gen uint64) error {
+	if f.err == nil || f.gen < gen {
+		return nil
+	}
+	return fmt.Errorf("export in progress during flush failed: %w", f.err)
+}
+
 // Flush exports every observation accepted before the call, plus pending drop
 // counters, through all exporters with ctx. It returns once they have been
-// exported, or with ctx's error once ctx is done. Export failures are returned.
+// exported, or with ctx's error once ctx is done. Export failures are returned,
+// including failures of background exports that were still in progress when
+// Flush was called, since those carried observations accepted before the call.
 func (p *Pipeline) Flush(ctx context.Context) error {
 	select {
 	case <-p.shutdownCh:
@@ -38,7 +64,9 @@ func (p *Pipeline) Flush(ctx context.Context) error {
 func (p *Pipeline) Shutdown(ctx context.Context) error {
 	var shutdownErr error
 	p.shutdownOnce.Do(func() {
+		p.closeMu.Lock()
 		close(p.shutdownCh)
+		p.closeMu.Unlock()
 		errs := []error{p.broadcast(ctx, true)}
 		// Workers that did not get the stop request exit without exporting.
 		p.cancel()
@@ -58,10 +86,13 @@ func (p *Pipeline) Shutdown(ctx context.Context) error {
 }
 
 // broadcast sends one flush request to every worker, so every partial batch is
-// exported, and waits for all acknowledgements.
+// exported, and waits for all acknowledgements. Requests go out one worker at
+// a time: a worker acknowledges only after its drain found the ring empty, so
+// every slot filled before the call is claimed by then, and a worker that
+// resumes early can only pop observations accepted after the call.
 func (p *Pipeline) broadcast(ctx context.Context, stop bool) error {
 	done := make(chan error, len(p.flushes))
-	request := flushRequest{ctx: ctx, stop: stop, done: done}
+	request := flushRequest{ctx: ctx, gen: p.flushGen.Add(1), stop: stop, done: done}
 	for _, flushes := range p.flushes {
 		select {
 		case flushes <- request:
@@ -84,8 +115,10 @@ func (p *Pipeline) broadcast(ctx context.Context, stop bool) error {
 }
 
 // drain exports batch, the ring and pending drop counters with ctx. It pops at
-// most one ring capacity, so records arriving during the drain cannot starve
-// it; they are exported later by the regular worker loop.
+// most one ring capacity: that covers every observation buffered when the drain
+// started (the ring never holds more), while records arriving during the drain
+// cannot keep it running; they are exported later by the regular worker loop.
+// During Shutdown no records arrive, so the ring ends empty.
 func (p *Pipeline) drain(ctx context.Context, batch []*Metric) error {
 	var errs []error
 	for popped := 0; popped < p.buffer.Cap() && ctx.Err() == nil; {
