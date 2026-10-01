@@ -31,6 +31,7 @@ type metricsReceiver struct {
 	server   *httptest.Server
 	mu       sync.Mutex
 	points   map[string]wirePoint
+	log      []*collectormetricspb.ExportMetricsServiceRequest // every request, in arrival order
 	requests chan struct{}
 }
 
@@ -61,6 +62,7 @@ func newMetricsReceiver(t *testing.T) *metricsReceiver {
 func (r *metricsReceiver) record(request *collectormetricspb.ExportMetricsServiceRequest) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.log = append(r.log, request)
 	for _, resource := range request.GetResourceMetrics() {
 		for _, scope := range resource.GetScopeMetrics() {
 			for _, metric := range scope.GetMetrics() {
