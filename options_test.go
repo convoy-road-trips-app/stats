@@ -38,3 +38,21 @@ func TestWithOTLP_preserves_explicit_resource_and_service_options(t *testing.T) 
 	require.Equal(t, []attribute.KeyValue{attribute.String("team", "payments")}, config.OTLP.ResourceAttributes)
 	require.Equal(t, "https://opentelemetry.io/schemas/1.26.0", config.OTLP.ResourceSchemaURL)
 }
+
+func TestWithOTLP_option_reused_for_two_clients_keeps_their_settings_apart(t *testing.T) {
+	// Given: one WithOTLP option and two configs with different earlier options
+	option := WithOTLP(&OTLPConfig{Endpoint: "localhost:4317"})
+	first, second := DefaultConfig(), DefaultConfig()
+	WithServiceName("first-service")(first)
+	WithOTLPResourceAttributes(attribute.String("team", "first"))(first)
+	WithServiceName("second-service")(second)
+
+	// When
+	option(first)
+	option(second)
+
+	// Then
+	require.Equal(t, "first-service", first.OTLP.ServiceName)
+	require.Equal(t, "second-service", second.OTLP.ServiceName)
+	require.Empty(t, second.OTLP.ResourceAttributes)
+}

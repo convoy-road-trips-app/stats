@@ -2,6 +2,7 @@ package stats
 
 import (
 	"cmp"
+	"slices"
 	"time"
 
 	"github.com/convoy-road-trips-app/stats/models"
@@ -167,25 +168,28 @@ func WithDatadog(cfg *DatadogConfig) Option {
 	}
 }
 
-// WithOTLP enables and configures OTLP exporter
+// WithOTLP enables and configures OTLP exporter. cfg is copied, so one option
+// can configure several clients.
 func WithOTLP(cfg *OTLPConfig) Option {
 	return func(c *Config) {
 		if cfg == nil {
 			return
 		}
-		if c.OTLP != nil && c.OTLP.HistogramBuckets != nil && cfg.HistogramBuckets == nil {
-			cfg.HistogramBuckets = c.OTLP.HistogramBuckets
-		}
+		merged := *cfg
+		merged.ResourceAttributes = slices.Clone(cfg.ResourceAttributes)
 		if c.OTLP != nil {
-			cfg.Temporality = cmp.Or(cfg.Temporality, c.OTLP.Temporality)
-			cfg.ResourceAttributes = append(cfg.ResourceAttributes, c.OTLP.ResourceAttributes...)
-			cfg.ResourceSchemaURL = cmp.Or(cfg.ResourceSchemaURL, c.OTLP.ResourceSchemaURL)
-			cfg.ServiceName = cmp.Or(cfg.ServiceName, c.OTLP.ServiceName)
-			cfg.DeploymentEnvironment = cmp.Or(cfg.DeploymentEnvironment, c.OTLP.DeploymentEnvironment)
-			cfg.Retry = cmp.Or(cfg.Retry, c.OTLP.Retry)
+			if merged.HistogramBuckets == nil {
+				merged.HistogramBuckets = c.OTLP.HistogramBuckets
+			}
+			merged.Temporality = cmp.Or(merged.Temporality, c.OTLP.Temporality)
+			merged.ResourceAttributes = append(merged.ResourceAttributes, c.OTLP.ResourceAttributes...)
+			merged.ResourceSchemaURL = cmp.Or(merged.ResourceSchemaURL, c.OTLP.ResourceSchemaURL)
+			merged.ServiceName = cmp.Or(merged.ServiceName, c.OTLP.ServiceName)
+			merged.DeploymentEnvironment = cmp.Or(merged.DeploymentEnvironment, c.OTLP.DeploymentEnvironment)
+			merged.Retry = cmp.Or(merged.Retry, c.OTLP.Retry)
 		}
-		cfg.Enabled = true
-		c.OTLP = cfg
+		merged.Enabled = true
+		c.OTLP = &merged
 	}
 }
 
