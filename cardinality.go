@@ -78,8 +78,8 @@ func (l *cardinalityLimiter) admit(m *Metric, limit int) (admission, error) {
 
 	a := admission{limiter: l}
 	set := attribute.NewSet(m.Attributes...) // sorted by key, duplicate keys collapsed
-	if set.Len() > maxLabelsPerObservation {
-		a.labelsDropped = uint64(set.Len() - maxLabelsPerObservation)
+	if extra := set.Len() - maxLabelsPerObservation; extra > 0 {
+		a.labelsDropped = uint64(extra)
 		trimmed := set.ToSlice()[:maxLabelsPerObservation]
 		m.Attributes = append(m.Attributes[:0], trimmed...)
 		set = attribute.NewSet(trimmed...)
@@ -163,7 +163,8 @@ func (a admission) release() {
 }
 
 func (s *metricSeries) unreserve(key attribute.Distinct) {
-	if s.reserved[key]--; s.reserved[key] == 0 {
+	s.reserved[key]--
+	if s.reserved[key] == 0 {
 		delete(s.reserved, key)
 	}
 }
