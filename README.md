@@ -5,10 +5,10 @@ A production-ready, non-blocking stats library for Go that implements the **Open
 ## Features
 
 - ✅ **OpenTelemetry Metrics API**: Sync and observable instruments, dual-mode operation, cumulative OTLP export with explicit-bucket histograms and exemplars ([details and limitations](docs/otel_compliance.md))
-- ✅ **Non-Blocking**: Never blocks your application, even under extreme load
+- ✅ **Non-Blocking Recording**: Recording never waits for an exporter; when the buffer, memory or rate limit is hit, the observation is dropped and an error is returned
 - ✅ **High Performance**: Lock-free ring buffer, >100k events/sec throughput
 - ✅ **Multi-Backend**: Datadog (DogStatsD), Prometheus (StatsD), CloudWatch (EMF)
-- ✅ **Zero Allocation**: Object pooling minimizes GC pressure
+- ✅ **Low Allocation**: Metric objects are pooled to reduce GC pressure (recording is not allocation-free, for example attribute-set handling allocates)
 - ✅ **Resilient**: Circuit breakers, panic recovery, graceful degradation
 - ✅ **Production Ready**: Memory-bounded, race-detector tested, adaptive backpressure
 - ✅ **Dual API**: Simple legacy API + standard OTel API
@@ -271,45 +271,48 @@ All values are emitted as absolute gauges. See [docs/runtime_metrics.md](docs/ru
 
 ## Architecture
 
-For a detailed overview of the system architecture, see [ARCHITECTURE.md](ARCHITECTURE.md).
+Both APIs record into one shared pipeline. Recording is synchronous and bounded; export is asynchronous. Detailed diagrams of the recording path, exporter fan-out and Flush/Shutdown lifecycle are in [docs/architecture.md](docs/architecture.md).
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Application Code                          │
-└───────────────┬─────────────────────────────────────────────┘
-                │
-                ├─ Legacy Mode: stats.NewClient()
-                │  └─> client.Counter(), client.Gauge(), etc.
-                │
-                └─ OTel Mode: otel.NewMeterProvider()
-                   └─> meter.Int64Counter(), meter.Float64Histogram(), etc.
-                │
-                ▼
-┌───────────────────────────────────────────────────────────────┐
-│              High-Performance Pipeline (Shared)                │
-│  • Lock-free ring buffer (16K capacity)                       │
-│  • Worker pool (4 workers) with parallel exporting            │
-│  • Adaptive batching & backpressure handling                  │
-│  • Panic recovery & per-exporter error tracking               │
-└───────────────┬───────────────────────────────────────────────┘
-                │
-                ▼
-┌───────────────────────────────────────────────────────────────┐
-│                    Backend Exporters                           │
-│  • Datadog (DogStatsD over UDP)                               │
-│  • Prometheus (StatsD over UDP)                               │
-│  • CloudWatch (EMF via logs)                                  │
-│  • OTLP (gRPC to OTel Collector)                              │
-└───────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph sources["Metric sources"]
+        legacy["Legacy API<br/>stats.Client"]
+        otel["OTel API<br/>otel.MeterProvider"]
+        obs["Observable callbacks<br/>(optional)"]
+        rt["Runtime metrics<br/>(optional)"]
+    end
+
+    subgraph record["Synchronous: Pipeline.Record"]
+        checks["Rate limit, key and<br/>cardinality checks"]
+        ring[("Bounded ring buffer<br/>drop on pressure")]
+    end
+
+    subgraph async["Asynchronous: worker pool"]
+        workers["Workers<br/>batch and export"]
+    end
+
+    subgraph exporters["Exporters (one batch, all in parallel)"]
+        dd["Datadog<br/>DogStatsD over UDP"]
+        prom["Prometheus<br/>StatsD over UDP"]
+        cw["CloudWatch<br/>EMF over UDP to the agent"]
+        otlp["OTLP<br/>gRPC or HTTP"]
+    end
+
+    otel --> legacy
+    obs --> otel
+    rt --> legacy
+    legacy --> checks --> ring --> workers
+    workers --> dd & prom & cw & otlp
+    otlp --> collector["OTel Collector<br/>or backend"]
 ```
 
 ### Key Components
 
-- **Ring Buffer**: Lock-free, bounded MPSC queue using atomic operations
+- **Ring Buffer**: Bounded queue using atomic operations and per-slot sequence numbers
 - **Worker Pool**: Parallel metric processing with configurable workers
 - **Exporters**: Backend-specific serialization and transport
-- **Circuit Breaker**: Protects against cascading failures
-- **UDP Pool**: Pre-allocated connections for zero-allocation sends
+- **Circuit Breaker**: Used by the UDP exporters (Datadog, Prometheus, CloudWatch) to stop sending after repeated failures
+- **UDP Pool**: Pre-created UDP connections shared by the UDP exporters
 
 ## Performance
 
@@ -551,17 +554,17 @@ See [examples/testing/](examples/testing/) for a complete example.
 
 ## Design Principles
 
-1. **Never Block**: Application performance always takes priority
+1. **Don't Wait on Exporters**: Recording returns an error instead of waiting for export
 2. **Graceful Degradation**: Drop metrics under pressure rather than fail
-3. **Zero Allocation**: Use object pools in hot paths
-4. **Isolated Failures**: Backend failures don't affect other backends
+3. **Low Allocation**: Pool metric objects in hot paths
+4. **Isolated Failures**: An exporter error or panic is recovered and counted per exporter and does not stop the others; a batch completes when its slowest exporter returns
 5. **Observable**: Library exposes internal metrics
 6. **Standard API**: Implements the OpenTelemetry Metrics API (see [limitations](docs/otel_compliance.md#limitations))
-7. **Backward Compatible**: Legacy API remains unchanged
+7. **Source Compatible**: The legacy Go API is unchanged; v1.1.0 changed some behavior (see [Upgrading from v1.0.x](#upgrading-from-v10x-semver-exception))
 
 ## Documentation
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) - Detailed architecture overview
+- [docs/architecture.md](docs/architecture.md) - Architecture overview and diagrams
 - [docs/otel_compliance.md](docs/otel_compliance.md) - OpenTelemetry compliance guide
 - [CLAUDE.md](CLAUDE.md) - Development guidelines
 
