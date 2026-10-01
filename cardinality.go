@@ -62,7 +62,8 @@ type admission struct {
 }
 
 // admit rejects invalid tag keys, caps string values, keeps the first 10 keys
-// in lexical order and reserves m's series within the limit (<= 0 means 2000).
+// in lexical order, writes that sorted and deduplicated set back to m, and
+// reserves m's series within the limit (<= 0 means 2000).
 // On success the caller must commit or release the returned admission.
 func (l *cardinalityLimiter) admit(m *Metric, limit int) (admission, error) {
 	for _, kv := range m.Attributes {
@@ -83,6 +84,13 @@ func (l *cardinalityLimiter) admit(m *Metric, limit int) (admission, error) {
 		trimmed := set.ToSlice()[:maxLabelsPerObservation]
 		m.Attributes = append(m.Attributes[:0], trimmed...)
 		set = attribute.NewSet(trimmed...)
+	} else {
+		// Every backend sees the admitted set: StatsD paths follow attribute
+		// order, so a permutation must not become another backend series.
+		m.Attributes = m.Attributes[:set.Len()]
+		for i, iter := 0, set.Iter(); iter.Next(); i++ {
+			m.Attributes[i] = iter.Attribute()
+		}
 	}
 
 	if limit <= 0 {
