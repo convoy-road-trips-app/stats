@@ -233,3 +233,43 @@ func TestNewPipeline_defaultsOTLPServiceName_fromStatsConfig(t *testing.T) {
 		t.Fatalf("OTLP service name = %q, want stats service name %q", config.OTLP.ServiceName, config.ServiceName)
 	}
 }
+
+type panickingIdleExporter struct{ MockExporter }
+
+func (panickingIdleExporter) ExportIdle(context.Context) error { panic("idle export failed") }
+
+func TestPipeline_exportIdleInBackground_recovers_panic(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p := &Pipeline{
+		cfg:            DefaultConfig(),
+		exporters:      []Exporter{&panickingIdleExporter{MockExporter{name: "idle"}}},
+		exporterErrors: make([]atomic.Uint64, 1),
+		ctx:            ctx,
+		cancel:         cancel,
+	}
+
+	err := p.exportIdleInBackground()
+
+	if err == nil {
+		t.Fatal("expected the panic to be returned as an error")
+	}
+	if p.errors.Load() != 1 || p.exporterErrors[0].Load() != 1 {
+		t.Errorf("expected 1 error counted, got %d/%d", p.errors.Load(), p.exporterErrors[0].Load())
+	}
+}
+
+func TestPipeline_idleSince_is_false_right_after_a_batch_export(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p := &Pipeline{cfg: DefaultConfig(), exporterErrors: make([]atomic.Uint64, 0), ctx: ctx, cancel: cancel}
+
+	if !p.idleSince(time.Second) {
+		t.Fatal("a pipeline that never exported is idle")
+	}
+	_ = p.exportInBackground([]*Metric{{Name: "m", Value: 1}})
+
+	if p.idleSince(time.Second) {
+		t.Fatal("a batch export in the last interval must suppress the idle export")
+	}
+}

@@ -29,7 +29,9 @@ func (a *accumulation) gaugePoint(meta seriesMeta, point metricdata.DataPoint[fl
 	key := histogramKey{name: meta.name, attributes: point.Attributes.Equivalent()}
 	state, _ := a.state(key, point.Time)
 	state.meta, state.attributes, state.kind = meta, point.Attributes, kindGauge
-	state.gauge = point.Value
+	if !point.Time.Before(state.gaugeTime) {
+		state.gauge, state.gaugeTime = point.Value, point.Time
+	}
 	if point.Time.After(state.lastTime) {
 		state.lastTime = point.Time
 	}

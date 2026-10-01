@@ -111,3 +111,22 @@ func TestExporter_ExportIdle_before_any_observation_sends_nothing(t *testing.T) 
 	// Then
 	require.Empty(t, collector.collections)
 }
+
+func TestExporter_ExportIdle_repeats_the_newest_gauge_when_batches_arrive_out_of_order(t *testing.T) {
+	// Given: a newer gauge batch exported before an older one
+	attrs := []attribute.KeyValue{attribute.String("k", "v")}
+	collector := &collectingExporter{}
+	exporter := &Exporter{config: &models.OTLPConfig{Enabled: true}, otlpExporter: collector}
+	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
+		{Name: "sync_last", Type: models.MetricTypeGauge, Value: 9, Timestamp: time.Unix(200, 0), Attributes: attrs}}))
+	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
+		{Name: "sync_last", Type: models.MetricTypeGauge, Value: 1, Timestamp: time.Unix(100, 0), Attributes: attrs}}))
+
+	// When
+	require.NoError(t, exporter.ExportIdle(context.Background()))
+
+	// Then: the idle export repeats the newest observation, not the last to arrive
+	gauge := metricByName(t, collector.collections[2], "sync_last").Data.(metricdata.Gauge[float64])
+	require.Len(t, gauge.DataPoints, 1)
+	require.InDelta(t, 9, gauge.DataPoints[0].Value, 0.001)
+}

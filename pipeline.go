@@ -36,6 +36,7 @@ type Pipeline struct {
 	shutdownCh   chan struct{}
 	closeMu      sync.RWMutex
 	flushGen     atomic.Uint64 // incremented by every Flush and Shutdown
+	lastExport   atomic.Int64  // UnixNano of the last batch export by any worker
 
 	// flushes holds one flush channel per worker started by Start
 	flushes []chan flushRequest
@@ -198,9 +199,10 @@ func (p *Pipeline) worker(id int) {
 			if len(batch) > 0 {
 				inFlight.record(p.exportInBackground(batch), &p.flushGen)
 				batch = batch[:0] // Reset slice, keep capacity
-			} else if id == 0 {
-				// One worker repeats the state of cumulative exporters, so an
-				// interval without observations still exports every series.
+			} else if id == 0 && p.idleSince(p.cfg.FlushInterval) {
+				// One worker repeats the state of cumulative exporters, but only
+				// when no worker exported a batch for a whole interval: a batch
+				// export already carries the full cumulative state.
 				inFlight.record(p.exportIdleInBackground(), &p.flushGen)
 			}
 
@@ -250,7 +252,13 @@ func (p *Pipeline) appendPopped(batch []*Metric, items []any) []*Metric {
 // An exporter implementing exportTimeouter (OTLP) is bounded by its own timeout
 // instead: a 100ms UDP write deadline cancels every real network round trip.
 func (p *Pipeline) exportInBackground(batch []*Metric) error {
+	p.lastExport.Store(time.Now().UnixNano())
 	return p.processBatchWith(p.ctx, batch, p.cfg.UDPTimeout)
+}
+
+// idleSince reports whether no worker exported a batch within d.
+func (p *Pipeline) idleSince(d time.Duration) bool {
+	return time.Since(time.Unix(0, p.lastExport.Load())) >= d
 }
 
 // exportTimeouter is implemented by exporters that bound their own exports
@@ -274,13 +282,26 @@ func (p *Pipeline) exportIdleInBackground() error {
 		if !ok {
 			continue
 		}
-		if err := idle.ExportIdle(p.ctx); err != nil {
+		if err := p.exportIdle(idle, exporter.Name()); err != nil {
 			p.errors.Add(1)
 			p.exporterErrors[i].Add(1)
-			errs = append(errs, fmt.Errorf("exporter %s: %w", exporter.Name(), err))
+			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// exportIdle calls ExportIdle, converting a panic into an error like processBatchWith does.
+func (p *Pipeline) exportIdle(idle idleExporter, name string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("exporter %s panicked: %v", name, r)
+		}
+	}()
+	if err := idle.ExportIdle(p.ctx); err != nil {
+		return fmt.Errorf("exporter %s: %w", name, err)
+	}
+	return nil
 }
 
 // processBatch sends a batch of metrics to all exporters with ctx and returns

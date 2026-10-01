@@ -21,7 +21,8 @@ type seriesState struct {
 	meta       seriesMeta
 	attributes attribute.Set
 	kind       seriesKind
-	gauge      float64 // last observed value of a gauge series
+	gauge      float64   // value of the newest observation of a gauge series
+	gaugeTime  time.Time // observation time of gauge; batches can arrive out of order
 }
 
 // minPointSpacing keeps successive cumulative points of a series in distinct
