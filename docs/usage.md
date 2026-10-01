@@ -3,7 +3,7 @@
 ## Install
 
 ```bash
-go get github.com/convoy-road-trips-app/stats@v1.2.1
+go get github.com/convoy-road-trips-app/stats@v1.2.2
 ```
 
 Requires Go 1.26 or newer. Upgrading from v1.0.x? v1.1.0 changes some behavior (cumulative OTLP by default, key rejection, cardinality limits, draining `Shutdown`); see [Upgrading from v1.0.x](../README.md#upgrading-from-v10x-semver-exception).
