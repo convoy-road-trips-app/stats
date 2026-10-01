@@ -48,6 +48,11 @@ type Metric struct {
 	// zero values mean no exemplar.
 	TraceID trace.TraceID
 	SpanID  trace.SpanID
+
+	// Description and Unit are the instrument metadata that exporters with
+	// metric metadata, such as OTLP, attach to the metric. Empty means unset.
+	Description string
+	Unit        string
 }
 
 // HasExemplar reports whether the observation carries a sampled span to export
@@ -58,7 +63,7 @@ func (m *Metric) HasExemplar() bool {
 
 // EstimateSize returns an estimate of the metric size in bytes
 func (m *Metric) EstimateSize() int64 {
-	size := int64(len(m.Name))
+	size := int64(len(m.Name) + len(m.Description) + len(m.Unit))
 	size += 8 // Value (float64)
 	size += 8 // Timestamp
 	size += 4 // Priority
@@ -86,6 +91,8 @@ func (m *Metric) Reset() {
 	m.Priority = 1
 	m.TraceID = trace.TraceID{}
 	m.SpanID = trace.SpanID{}
+	m.Description = ""
+	m.Unit = ""
 }
 
 // metricPool is a sync.Pool for reusing Metric objects

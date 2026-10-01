@@ -65,3 +65,17 @@ func WithTimestamp(ts time.Time) MetricOption {
 		m.Timestamp = ts
 	}
 }
+
+// WithDescription sets the metric description exported as OTLP metric metadata.
+func WithDescription(description string) MetricOption {
+	return func(m *Metric) {
+		m.Description = description
+	}
+}
+
+// WithUnit sets the metric unit, such as "s" or "By", exported as OTLP metric metadata.
+func WithUnit(unit string) MetricOption {
+	return func(m *Metric) {
+		m.Unit = unit
+	}
+}
