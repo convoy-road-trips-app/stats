@@ -90,7 +90,7 @@ type observableSpec struct {
 // observableFor returns the instrument stored under spec.key or creates it with
 // wrap and registers its callbacks. As in the OTel SDK, only the callbacks
 // passed when the instrument is created are registered.
-func observableFor[T observableInstrument](m *Meter, spec observableSpec, wrap func(*observable) T) (T, error) {
+func observableFor[T observableInstrument](m *Meter, spec *observableSpec, wrap func(*observable) T) (T, error) {
 	m.mu.Lock()
 	if existing, ok := m.instruments[spec.key]; ok {
 		m.mu.Unlock()

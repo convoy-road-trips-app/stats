@@ -210,7 +210,7 @@ func (m *Meter) Int64ObservableCounter(name string, opts ...metric.Int64Observab
 		key: "observable_counter_int64_" + name, name: name, description: cfg.Description(), unit: cfg.Unit(),
 		kind: observableCounter, callbacks: int64Callbacks(cfg.Callbacks()),
 	}
-	return observableFor(m, spec, func(o *observable) *int64ObservableCounter { return &int64ObservableCounter{observable: o} })
+	return observableFor(m, &spec, func(o *observable) *int64ObservableCounter { return &int64ObservableCounter{observable: o} })
 }
 
 // Float64ObservableCounter creates an instrument whose callbacks observe a
@@ -221,7 +221,7 @@ func (m *Meter) Float64ObservableCounter(name string, opts ...metric.Float64Obse
 		key: "observable_counter_float64_" + name, name: name, description: cfg.Description(), unit: cfg.Unit(),
 		kind: observableCounter, callbacks: float64Callbacks(cfg.Callbacks()),
 	}
-	return observableFor(m, spec, func(o *observable) *float64ObservableCounter { return &float64ObservableCounter{observable: o} })
+	return observableFor(m, &spec, func(o *observable) *float64ObservableCounter { return &float64ObservableCounter{observable: o} })
 }
 
 // Int64ObservableUpDownCounter creates an instrument whose callbacks observe an
@@ -233,7 +233,7 @@ func (m *Meter) Int64ObservableUpDownCounter(name string, opts ...metric.Int64Ob
 		key: "observable_updowncounter_int64_" + name, name: name, description: cfg.Description(), unit: cfg.Unit(),
 		kind: observableUpDownCounter, callbacks: int64Callbacks(cfg.Callbacks()),
 	}
-	return observableFor(m, spec, func(o *observable) *int64ObservableUpDownCounter {
+	return observableFor(m, &spec, func(o *observable) *int64ObservableUpDownCounter {
 		return &int64ObservableUpDownCounter{observable: o}
 	})
 }
@@ -247,7 +247,7 @@ func (m *Meter) Float64ObservableUpDownCounter(name string, opts ...metric.Float
 		key: "observable_updowncounter_float64_" + name, name: name, description: cfg.Description(), unit: cfg.Unit(),
 		kind: observableUpDownCounter, callbacks: float64Callbacks(cfg.Callbacks()),
 	}
-	return observableFor(m, spec, func(o *observable) *float64ObservableUpDownCounter {
+	return observableFor(m, &spec, func(o *observable) *float64ObservableUpDownCounter {
 		return &float64ObservableUpDownCounter{observable: o}
 	})
 }
@@ -260,7 +260,7 @@ func (m *Meter) Int64ObservableGauge(name string, opts ...metric.Int64Observable
 		key: "observable_gauge_int64_" + name, name: name, description: cfg.Description(), unit: cfg.Unit(),
 		kind: observableGauge, callbacks: int64Callbacks(cfg.Callbacks()),
 	}
-	return observableFor(m, spec, func(o *observable) *int64ObservableGauge { return &int64ObservableGauge{observable: o} })
+	return observableFor(m, &spec, func(o *observable) *int64ObservableGauge { return &int64ObservableGauge{observable: o} })
 }
 
 // Float64ObservableGauge creates an instrument whose callbacks observe the
@@ -271,7 +271,7 @@ func (m *Meter) Float64ObservableGauge(name string, opts ...metric.Float64Observ
 		key: "observable_gauge_float64_" + name, name: name, description: cfg.Description(), unit: cfg.Unit(),
 		kind: observableGauge, callbacks: float64Callbacks(cfg.Callbacks()),
 	}
-	return observableFor(m, spec, func(o *observable) *float64ObservableGauge { return &float64ObservableGauge{observable: o} })
+	return observableFor(m, &spec, func(o *observable) *float64ObservableGauge { return &float64ObservableGauge{observable: o} })
 }
 
 // RegisterCallback registers f to observe insts, which must be observable
