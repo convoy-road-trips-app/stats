@@ -153,6 +153,38 @@ func TestExporter_cumulative_separates_attribute_series(t *testing.T) {
 	require.Equal(t, float64(5), sum.DataPoints[0].Value)
 }
 
+func TestExporter_cumulative_point_time_advances_when_later_export_holds_older_observations(t *testing.T) {
+	// Given: two workers whose batches of one series reach the exporter out of
+	// observation order, within the same millisecond
+	observed := time.Unix(100, 500_000)
+	newer := []*models.Metric{
+		{Name: "requests_total", Type: models.MetricTypeCounter, Value: 5, Timestamp: observed.Add(300 * time.Microsecond)},
+		{Name: "duration_seconds", Type: models.MetricTypeHistogram, Value: 0.01, Timestamp: observed.Add(300 * time.Microsecond)},
+	}
+	older := []*models.Metric{
+		{Name: "requests_total", Type: models.MetricTypeCounter, Value: 1, Timestamp: observed},
+		{Name: "requests_total", Type: models.MetricTypeCounter, Value: 1, Timestamp: observed},
+		{Name: "duration_seconds", Type: models.MetricTypeHistogram, Value: 0.02, Timestamp: observed},
+	}
+	collector := &collectingExporter{}
+	exporter := &Exporter{config: &models.OTLPConfig{Enabled: true}, otlpExporter: collector}
+
+	// When
+	require.NoError(t, exporter.Export(context.Background(), newer))
+	require.NoError(t, exporter.Export(context.Background(), older))
+
+	// Then: the larger total lands one millisecond after the previous point,
+	// however many observations of the series the late batch holds
+	sums := [2]time.Time{}
+	hists := [2]time.Time{}
+	for i, rm := range collector.collections {
+		sums[i] = metricByName(t, rm, "requests_total").Data.(metricdata.Sum[float64]).DataPoints[0].Time
+		hists[i] = metricByName(t, rm, "duration_seconds").Data.(metricdata.Histogram[float64]).DataPoints[0].Time
+	}
+	require.Equal(t, sums[0].Add(time.Millisecond), sums[1])
+	require.Equal(t, hists[0].Add(time.Millisecond), hists[1])
+}
+
 func metricByName(t *testing.T, rm metricdata.ResourceMetrics, name string) metricdata.Metrics {
 	t.Helper()
 	for _, m := range rm.ScopeMetrics[0].Metrics {

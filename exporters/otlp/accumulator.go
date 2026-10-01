@@ -15,6 +15,26 @@ type seriesState struct {
 	histogram metricdata.HistogramDataPoint[float64]
 }
 
+// minPointSpacing keeps successive cumulative points of a series in distinct
+// milliseconds, the timestamp resolution of Prometheus and Mimir.
+const minPointSpacing = time.Millisecond
+
+// pointTime records the next point of the series and returns its timestamp.
+// Workers export batches concurrently, so a later cumulative export can hold
+// observations older than the previously exported point. Backends drop a
+// larger total stamped at or before that point as a duplicate or stale sample,
+// so the cumulative point is moved past it. Observations of the same batch are
+// clamped to the same floor and therefore do not drift.
+func (s *seriesState) pointTime(observed, exported time.Time, cumulative bool) time.Time {
+	if cumulative && !exported.IsZero() && observed.Before(exported.Add(minPointSpacing)) {
+		observed = exported.Add(minPointSpacing)
+	}
+	if observed.After(s.lastTime) {
+		s.lastTime = observed
+	}
+	return observed
+}
+
 // accumulate builds the next state without committing it until transport succeeds.
 // Export holds the lock across this call and the send, preserving per-series order.
 func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics) map[histogramKey]seriesState {
@@ -49,9 +69,7 @@ func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics) map[histogramKey]s
 				if !cumulative && !state.lastTime.IsZero() {
 					point.StartTime = state.lastTime
 				}
-				if point.Time.After(state.lastTime) {
-					state.lastTime = point.Time
-				}
+				point.Time = state.pointTime(point.Time, e.series[key].lastTime, cumulative)
 				next[key] = state
 				if cumulative {
 					point.Value = state.sum
@@ -91,9 +109,7 @@ func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics) map[histogramKey]s
 				if !cumulative && !state.lastTime.IsZero() {
 					point.StartTime = state.lastTime
 				}
-				if point.Time.After(state.lastTime) {
-					state.lastTime = point.Time
-				}
+				point.Time = state.pointTime(point.Time, e.series[key].lastTime, cumulative)
 				if cumulative {
 					state.histogram = *point
 					state.histogram.Exemplars = nil // exemplars belong to one export interval
