@@ -12,8 +12,10 @@ import (
 	"github.com/convoy-road-trips-app/stats/runtimemetrics"
 )
 
-// Client is the main stats library client
-type Client struct {
+// clientCore holds the state shared by a root Client and every view derived
+// from it: the pipeline, configuration, runtime collector and the shutdown
+// coordination. All recording takes mu.RLock exactly once.
+type clientCore struct {
 	cfg       *Config
 	pipeline  *Pipeline
 	collector *runtimemetrics.Collector
@@ -22,6 +24,15 @@ type Client struct {
 	shutdownOnce sync.Once
 	closed       bool
 	mu           sync.RWMutex
+}
+
+// Client is the main stats library client. It is a thin handle over a shared
+// clientCore; NewClient returns the root handle.
+type Client struct {
+	core   *clientCore
+	prefix string
+	tags   []attribute.KeyValue
+	root   bool
 }
 
 // NewClient creates a new stats client with the given options
@@ -51,8 +62,11 @@ func NewClient(opts ...Option) (*Client, error) {
 	}
 
 	client := &Client{
-		cfg:      cfg,
-		pipeline: pipeline,
+		core: &clientCore{
+			cfg:      cfg,
+			pipeline: pipeline,
+		},
+		root: true,
 	}
 
 	if cfg.RuntimeMetrics != nil && cfg.RuntimeMetrics.Enabled {
@@ -67,14 +81,14 @@ func NewClient(opts ...Option) (*Client, error) {
 				_ = client.Histogram(ctx, name, value)
 			}
 		}
-		client.collector = runtimemetrics.New(
+		client.core.collector = runtimemetrics.New(
 			runtimemetrics.Config{
 				CollectInterval: cfg.RuntimeMetrics.CollectInterval,
 				Prefix:          cfg.RuntimeMetrics.Prefix,
 			},
 			record,
 		)
-		client.collector.Start()
+		client.core.collector.Start()
 	}
 
 	return client, nil
@@ -83,116 +97,75 @@ func NewClient(opts ...Option) (*Client, error) {
 // Counter records a counter metric
 // Context is propagated for cancellation, deadlines, and tracing
 func (c *Client) Counter(ctx context.Context, name string, value float64, opts ...MetricOption) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if c.closed {
-		return ErrClientClosed
-	}
-
-	// Validate input
-	if err := validateMetricInput(name, value); err != nil {
-		return err
-	}
-
-	// Acquire metric from pool
-	m := AcquireMetric()
-	m.Name = name
-	m.Type = MetricTypeCounter
-	m.Value = value
-	m.Timestamp = time.Now()
-
-	// Apply options
-	for _, opt := range opts {
-		opt(m)
-	}
-
-	// Record metric with context
-	if err := c.pipeline.Record(ctx, m); err != nil {
-		// Return metric to pool if recording failed
-		ReleaseMetric(m)
-		return err
-	}
-
-	return nil
+	return c.recordValue(ctx, MetricTypeCounter, name, value, opts)
 }
 
 // Gauge records a gauge metric
 // Context is propagated for cancellation, deadlines, and tracing
 func (c *Client) Gauge(ctx context.Context, name string, value float64, opts ...MetricOption) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if c.closed {
-		return ErrClientClosed
-	}
-
-	// Validate input
-	if err := validateMetricInput(name, value); err != nil {
-		return err
-	}
-
-	m := AcquireMetric()
-	m.Name = name
-	m.Type = MetricTypeGauge
-	m.Value = value
-	m.Timestamp = time.Now()
-
-	for _, opt := range opts {
-		opt(m)
-	}
-
-	if err := c.pipeline.Record(ctx, m); err != nil {
-		ReleaseMetric(m)
-		return err
-	}
-
-	return nil
+	return c.recordValue(ctx, MetricTypeGauge, name, value, opts)
 }
 
 // Histogram records a histogram metric
 // Context is propagated for cancellation, deadlines, and tracing
 func (c *Client) Histogram(ctx context.Context, name string, value float64, opts ...MetricOption) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	return c.recordValue(ctx, MetricTypeHistogram, name, value, opts)
+}
 
-	if c.closed {
-		return ErrClientClosed
-	}
+// RecordMetric records a pre-configured metric
+func (c *Client) RecordMetric(ctx context.Context, m *Metric) error {
+	return c.record(ctx, m, nil)
+}
 
-	// Validate input
+// recordValue validates the input, builds a pooled metric and records it. The
+// metric returns to the pool when recording fails.
+func (c *Client) recordValue(ctx context.Context, typ MetricType, name string, value float64, opts []MetricOption) error {
 	if err := validateMetricInput(name, value); err != nil {
+		// A closed client reports ErrClientClosed in preference to bad input.
+		if c.core.isClosed() {
+			return ErrClientClosed
+		}
 		return err
 	}
 
 	m := AcquireMetric()
 	m.Name = name
-	m.Type = MetricTypeHistogram
+	m.Type = typ
 	m.Value = value
 	m.Timestamp = time.Now()
+
+	if err := c.record(ctx, m, opts); err != nil {
+		ReleaseMetric(m)
+		return err
+	}
+	return nil
+}
+
+// record is the single, non-recursive recording path. It takes core.mu.RLock
+// once, fails with ErrClientClosed after shutdown, builds the attributes (the
+// metric's existing attributes first, then the explicit options) and hands m to
+// the pipeline. It never releases m; the caller owns it on error.
+func (c *Client) record(ctx context.Context, m *Metric, opts []MetricOption) error {
+	core := c.core
+	core.mu.RLock()
+	defer core.mu.RUnlock()
+
+	if core.closed {
+		return ErrClientClosed
+	}
 
 	for _, opt := range opts {
 		opt(m)
 	}
 
-	if err := c.pipeline.Record(ctx, m); err != nil {
-		ReleaseMetric(m)
-		return err
-	}
-
-	return nil
+	return core.pipeline.Record(ctx, m)
 }
 
-// RecordMetric records a pre-configured metric
-func (c *Client) RecordMetric(ctx context.Context, m *Metric) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if c.closed {
-		return ErrClientClosed
-	}
-
-	return c.pipeline.Record(ctx, m)
+// isClosed reports whether the core has begun shutting down.
+func (core *clientCore) isClosed() bool {
+	core.mu.RLock()
+	defer core.mu.RUnlock()
+	return core.closed
 }
 
 // Increment increments a counter by 1
@@ -216,15 +189,16 @@ func (c *Client) Timing(ctx context.Context, name string, duration time.Duration
 
 // Stats returns client statistics
 func (c *Client) Stats() ClientStats {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	core := c.core
+	core.mu.RLock()
+	defer core.mu.RUnlock()
 
-	pipelineStats := c.pipeline.Stats()
+	pipelineStats := core.pipeline.Stats()
 
 	return ClientStats{
-		ServiceName: c.cfg.ServiceName,
-		Environment: c.cfg.Environment,
-		Closed:      c.closed,
+		ServiceName: core.cfg.ServiceName,
+		Environment: core.cfg.Environment,
+		Closed:      core.closed,
 		Pipeline:    pipelineStats,
 	}
 }

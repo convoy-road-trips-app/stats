@@ -39,7 +39,7 @@ func lifecycleClient(t *testing.T, workers int, exporter *MockExporter, collecto
 	p.exporters = []Exporter{exporter}
 	p.exporterErrors = make([]atomic.Uint64, 1)
 	require.NoError(t, p.Start())
-	return &Client{cfg: cfg, pipeline: p, collector: collector}
+	return &Client{core: &clientCore{cfg: cfg, pipeline: p, collector: collector}, root: true}
 }
 
 // stuckCollector starts a collector whose background goroutine blocks inside
@@ -147,7 +147,7 @@ func TestClientShutdown_still_cleans_up_when_collector_and_pipeline_fail(t *test
 
 	// Then: the client is closed, the pipeline is stopped and the exporter shut down once
 	require.ErrorIs(t, client.Counter(context.Background(), "after.shutdown", 1), ErrClientClosed)
-	require.ErrorIs(t, client.pipeline.ctx.Err(), context.Canceled)
+	require.ErrorIs(t, client.core.pipeline.ctx.Err(), context.Canceled)
 	require.EqualValues(t, 1, exporter.calls.Load())
 }
 

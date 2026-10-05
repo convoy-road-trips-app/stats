@@ -27,7 +27,7 @@ func TestClientRuntimeMetrics_DisabledByDefault(t *testing.T) {
 	client, err := NewClient(WithServiceName("test-no-runtime"))
 	require.NoError(t, err)
 
-	assert.Nil(t, client.collector, "collector should be nil when runtime metrics are not enabled")
+	assert.Nil(t, client.core.collector, "collector should be nil when runtime metrics are not enabled")
 
 	time.Sleep(50 * time.Millisecond)
 	require.NoError(t, client.Close())

@@ -11,34 +11,35 @@ import (
 // drop counters, and returns once it has been exported, or with ctx's error once
 // ctx is done. Call it before a Lambda handler returns.
 func (c *Client) Flush(ctx context.Context) error {
-	c.mu.RLock()
-	closed := c.closed
-	c.mu.RUnlock()
-	if closed {
+	if c.core.isClosed() {
 		return ErrClientClosed
 	}
-	return c.pipeline.Flush(ctx)
+	return c.core.pipeline.Flush(ctx)
 }
 
 // Shutdown gracefully shuts down the client. It stops the runtime collector
 // and drains the pipeline even when the collector fails to stop, and reports
 // both failures, joined with errors.Join, when both occur.
 func (c *Client) Shutdown(ctx context.Context) error {
+	return c.core.shutdown(ctx)
+}
+
+func (core *clientCore) shutdown(ctx context.Context) error {
 	var shutdownErr error
 
-	c.shutdownOnce.Do(func() {
-		c.mu.Lock()
-		c.closed = true
-		c.mu.Unlock()
+	core.shutdownOnce.Do(func() {
+		core.mu.Lock()
+		core.closed = true
+		core.mu.Unlock()
 
 		var collectorErr error
-		if c.collector != nil {
-			if err := c.collector.Stop(ctx); err != nil {
+		if core.collector != nil {
+			if err := core.collector.Stop(ctx); err != nil {
 				collectorErr = fmt.Errorf("stop runtime collector: %w", err)
 			}
 		}
 
-		pipelineErr := c.pipeline.Shutdown(ctx)
+		pipelineErr := core.pipeline.Shutdown(ctx)
 		shutdownErr = joinShutdownErrors(collectorErr, pipelineErr)
 	})
 
