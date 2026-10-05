@@ -178,7 +178,10 @@ func (c *Client) IncrementBy(ctx context.Context, name string, value float64, op
 	return c.Counter(ctx, name, value, opts...)
 }
 
-// Timing records a timing metric (histogram) in milliseconds
+// Timing records a timing metric (histogram) in milliseconds, truncated to a
+// whole millisecond. New code should use Observe, which records seconds without
+// truncation and is the unit OpenTelemetry and Prometheus expect. Timing is kept
+// unchanged for existing callers.
 // Context is propagated for cancellation, deadlines, and tracing
 func (c *Client) Timing(ctx context.Context, name string, duration time.Duration, opts ...MetricOption) error {
 	ms := float64(duration.Milliseconds())
