@@ -31,6 +31,10 @@ type Config struct {
 	DropStrategy     DropStrategy
 	AdaptiveBatching bool
 
+	// HistogramBucketsByName holds explicit histogram bounds per metric name,
+	// in the units the metric is recorded in. See BucketsFor for precedence.
+	HistogramBucketsByName map[string][]float64
+
 	// Rate limiting (0 = disabled)
 	RateLimitPerSecond float64 // Metrics per second (0 = unlimited)
 	RateLimitBurst     int     // Maximum burst size

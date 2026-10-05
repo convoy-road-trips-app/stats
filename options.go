@@ -220,6 +220,19 @@ func WithHistogramBuckets(bounds []float64) Option {
 	}
 }
 
+// WithHistogramBucketsFor sets explicit histogram bounds for one metric name,
+// overriding the global buckets for that metric. Bounds use the units you
+// record in and must be non-empty, finite and strictly increasing; NewClient
+// returns an error otherwise. The bounds are copied.
+func WithHistogramBucketsFor(name string, bounds ...float64) Option {
+	return func(c *Config) {
+		if c.HistogramBucketsByName == nil {
+			c.HistogramBucketsByName = make(map[string][]float64)
+		}
+		c.HistogramBucketsByName[name] = append([]float64{}, bounds...)
+	}
+}
+
 // WithOTLPRetry retries retryable OTLP export failures with exponential backoff
 // from initial up to maxInterval, for at most maxElapsed per export. Retries
 // also stop when the export context ends.

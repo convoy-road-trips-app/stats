@@ -72,17 +72,41 @@ func DefaultHistogramBuckets() []float64 {
 	return []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
 }
 
+// ValidateHistogramBuckets checks that bounds are non-empty, finite and
+// strictly increasing.
+func ValidateHistogramBuckets(bounds []float64) error {
+	if len(bounds) == 0 {
+		return fmt.Errorf("histogram buckets must not be empty")
+	}
+	for i, bound := range bounds {
+		if math.IsNaN(bound) || math.IsInf(bound, 0) || (i > 0 && bound <= bounds[i-1]) {
+			return fmt.Errorf("histogram buckets must be strictly increasing")
+		}
+	}
+	return nil
+}
+
+// BucketsFor returns the histogram bounds for a metric name: the per-name
+// entry, then the global bounds, then DefaultHistogramBuckets(). Bounds use
+// the units the metric is recorded in.
+func BucketsFor(byName map[string][]float64, global []float64, name string) []float64 {
+	if bounds := byName[name]; len(bounds) > 0 {
+		return bounds
+	}
+	if len(global) > 0 {
+		return global
+	}
+	return DefaultHistogramBuckets()
+}
+
 // Validate validates the OTLP configuration
 func (c *OTLPConfig) Validate() error {
 	if c.Temporality != "" && c.Temporality != Cumulative && c.Temporality != Delta {
 		return fmt.Errorf("unsupported temporality %q (use %q or %q)", c.Temporality, Cumulative, Delta)
 	}
-	if c.HistogramBuckets != nil && len(c.HistogramBuckets) == 0 {
-		return fmt.Errorf("histogram buckets must not be empty")
-	}
-	for i, bound := range c.HistogramBuckets {
-		if math.IsNaN(bound) || math.IsInf(bound, 0) || (i > 0 && bound <= c.HistogramBuckets[i-1]) {
-			return fmt.Errorf("histogram buckets must be strictly increasing")
+	if c.HistogramBuckets != nil {
+		if err := ValidateHistogramBuckets(c.HistogramBuckets); err != nil {
+			return err
 		}
 	}
 	if c.Retry != nil {
