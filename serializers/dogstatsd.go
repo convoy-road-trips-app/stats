@@ -18,6 +18,9 @@ type DogStatsDSerializer struct {
 
 	distributions        bool
 	distributionPrefixes []string
+
+	// filters is the set of tag keys stripped at serialization time.
+	filters map[string]struct{}
 }
 
 // DogStatsDOption configures a DogStatsDSerializer.
@@ -34,6 +37,24 @@ func WithDistributions(enabled bool) DogStatsDOption {
 // is copied. An empty prefix matches every name.
 func WithDistributionPrefixes(prefixes []string) DogStatsDOption {
 	return func(s *DogStatsDSerializer) { s.distributionPrefixes = slices.Clone(prefixes) }
+}
+
+// WithTagFilters makes the serializer strip every tag whose key is in keys
+// from each serialized metric, both metric attributes and global tags (a
+// global tag's key is the part before its first ':'). Filtering happens while
+// serializing, so the shared *models.Metric is never modified. The slice is
+// copied; nil or empty keys mean no filtering.
+func WithTagFilters(keys []string) DogStatsDOption {
+	return func(s *DogStatsDSerializer) {
+		if len(keys) == 0 {
+			s.filters = nil
+			return
+		}
+		s.filters = make(map[string]struct{}, len(keys))
+		for _, k := range keys {
+			s.filters[k] = struct{}{}
+		}
+	}
 }
 
 // NewDogStatsDSerializer creates a new DogStatsD serializer
@@ -68,25 +89,32 @@ func (s *DogStatsDSerializer) Serialize(metrics []*models.Metric) ([][]byte, err
 		// Format: metric.name:value|type
 		fmt.Fprintf(buf, "%s:%g|%s", metric.Name, metric.Value, s.metricType(metric))
 
-		// Add tags if present
-		if len(metric.Attributes) > 0 || len(s.globalTags) > 0 {
-			buf.WriteString("|#")
-
-			// Global tags first
-			for i, tag := range s.globalTags {
-				if i > 0 {
-					buf.WriteByte(',')
-				}
-				buf.WriteString(tag)
+		// Add tags if present. Global tags come first, then metric attributes;
+		// filtered tags are skipped without leaving stray separators.
+		wrote := false
+		writeSep := func() {
+			if wrote {
+				buf.WriteByte(',')
+			} else {
+				buf.WriteString("|#")
+				wrote = true
 			}
-
-			// Metric-specific tags
-			for i, attr := range metric.Attributes {
-				if i > 0 || len(s.globalTags) > 0 {
-					buf.WriteByte(',')
-				}
-				fmt.Fprintf(buf, "%s:%s", attr.Key, attr.Value.Emit())
+		}
+		for _, tag := range s.globalTags {
+			if s.filtered(globalTagKey(tag)) {
+				continue
 			}
+			writeSep()
+			buf.WriteString(tag)
+		}
+		for _, attr := range metric.Attributes {
+			key := string(attr.Key)
+			if s.filtered(key) {
+				continue
+			}
+			writeSep()
+			// Emit keeps the established wire format for slice values, which String changes.
+			fmt.Fprintf(buf, "%s:%s", key, attr.Value.Emit()) //nolint:staticcheck // SA1019: output format must not change
 		}
 
 		// Make a copy since we're returning the buffer to the pool
@@ -130,4 +158,20 @@ func (s *DogStatsDSerializer) isDistribution(name string) bool {
 		}
 	}
 	return false
+}
+
+// filtered reports whether tags with the given key are stripped.
+func (s *DogStatsDSerializer) filtered(key string) bool {
+	if len(s.filters) == 0 {
+		return false
+	}
+	_, ok := s.filters[key]
+	return ok
+}
+
+// globalTagKey returns the key of a "key:value" global tag; a tag without a
+// colon is its own key.
+func globalTagKey(tag string) string {
+	key, _, _ := strings.Cut(tag, ":")
+	return key
 }

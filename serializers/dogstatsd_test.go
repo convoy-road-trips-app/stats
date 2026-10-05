@@ -188,3 +188,53 @@ func TestDistributionPrefixesCopied(t *testing.T) {
 	assert.Equal(t, "http.latency:2|d", serializeOne(t, s, histogram("http.latency")))
 	assert.Equal(t, "db.latency:2|h", serializeOne(t, s, histogram("db.latency")))
 }
+
+func taggedMetric() *models.Metric {
+	return &models.Metric{
+		Name: "req", Type: models.MetricTypeCounter, Value: 1,
+		Attributes: []attribute.KeyValue{
+			attribute.String("http_req_path", "/a/1"),
+			attribute.String("method", "GET"),
+			attribute.String("status", "200"),
+		},
+	}
+}
+
+func TestTagFiltersStripOnlyListedKeys(t *testing.T) {
+	s := NewDogStatsDSerializer(nil, WithTagFilters([]string{"method", "missing"}))
+	assert.Equal(t, "req:1|c|#http_req_path:/a/1,status:200", serializeOne(t, s, taggedMetric()))
+}
+
+func TestTagFiltersAllStrippedLeavesNoTagSection(t *testing.T) {
+	m := &models.Metric{Name: "req", Type: models.MetricTypeCounter, Value: 1,
+		Attributes: []attribute.KeyValue{attribute.String("http_req_path", "/x")}}
+	s := NewDogStatsDSerializer(nil, WithTagFilters([]string{"http_req_path"}))
+	assert.Equal(t, "req:1|c", serializeOne(t, s, m))
+}
+
+func TestTagFiltersApplyToGlobalTags(t *testing.T) {
+	s := NewDogStatsDSerializer([]string{"env:prod", "http_req_path:/g"}, WithTagFilters([]string{"http_req_path"}))
+	assert.Equal(t, "req:1|c|#env:prod,method:GET,status:200", serializeOne(t, s, taggedMetric()))
+}
+
+func TestNoTagFiltersKeepAll(t *testing.T) {
+	want := "req:1|c|#http_req_path:/a/1,method:GET,status:200"
+	assert.Equal(t, want, serializeOne(t, NewDogStatsDSerializer(nil), taggedMetric()))
+	assert.Equal(t, want, serializeOne(t, NewDogStatsDSerializer(nil, WithTagFilters([]string{})), taggedMetric()))
+}
+
+func TestTagFiltersDoNotMutateMetric(t *testing.T) {
+	m := taggedMetric()
+	want := append([]attribute.KeyValue(nil), m.Attributes...)
+	s := NewDogStatsDSerializer(nil, WithTagFilters([]string{"http_req_path", "method"}))
+	serializeOne(t, s, m)
+	serializeOne(t, s, m)
+	assert.Equal(t, want, m.Attributes)
+}
+
+func TestTagFiltersCopied(t *testing.T) {
+	keys := []string{"method"}
+	s := NewDogStatsDSerializer(nil, WithTagFilters(keys))
+	keys[0] = "status"
+	assert.Equal(t, "req:1|c|#http_req_path:/a/1,status:200", serializeOne(t, s, taggedMetric()))
+}

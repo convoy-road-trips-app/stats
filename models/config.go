@@ -108,6 +108,18 @@ type DatadogConfig struct {
 	// Counters and gauges are never affected. UseDistributions takes
 	// precedence when set.
 	DistributionPrefixes []string
+	// Filters lists tag keys stripped from every serialized metric, both
+	// metric attributes and global Tags (the key of a "key:value" tag is the
+	// part before the first ':'). A nil Filters selects DefaultDatadogFilters
+	// (just "http_req_path"); an empty but non-nil slice disables filtering
+	// and keeps every tag. The metrics themselves are never modified.
+	Filters []string
+}
+
+// DefaultDatadogFilters returns the tag keys stripped when
+// DatadogConfig.Filters is nil. It returns a fresh slice on every call.
+func DefaultDatadogFilters() []string {
+	return []string{"http_req_path"}
 }
 
 const (

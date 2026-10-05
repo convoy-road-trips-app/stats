@@ -34,6 +34,12 @@ func NewExporter(config *models.DatadogConfig) (*Exporter, error) {
 	cfg := *config
 	cfg.Tags = slices.Clone(config.Tags)
 	cfg.DistributionPrefixes = slices.Clone(config.DistributionPrefixes)
+	if config.Filters == nil {
+		cfg.Filters = models.DefaultDatadogFilters()
+	} else {
+		// Clone keeps a non-nil empty slice non-nil, preserving "no filtering".
+		cfg.Filters = slices.Clone(config.Filters)
+	}
 
 	network, address, err := cfg.ResolveEndpoint()
 	if err != nil {
@@ -44,6 +50,7 @@ func NewExporter(config *models.DatadogConfig) (*Exporter, error) {
 	serializer := serializers.NewDogStatsDSerializer(cfg.Tags,
 		serializers.WithDistributions(cfg.UseDistributions),
 		serializers.WithDistributionPrefixes(cfg.DistributionPrefixes),
+		serializers.WithTagFilters(cfg.Filters),
 	)
 
 	// Create base exporter
