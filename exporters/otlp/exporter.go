@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
-	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
@@ -58,67 +56,9 @@ func NewExporter(config *models.OTLPConfig) (*Exporter, error) {
 	}, nil
 }
 
-func newTransport(config *models.OTLPConfig) (otlpMetricExporter, error) {
-	switch config.Protocol {
-	case models.OTLPProtocolHTTP:
-		return newHTTPExporter(config)
-	default:
-		return newGRPCExporter(config)
-	}
-}
-
-func newGRPCExporter(config *models.OTLPConfig) (*otlpmetricgrpc.Exporter, error) {
-	opts := []otlpmetricgrpc.Option{
-		otlpmetricgrpc.WithEndpoint(config.Endpoint),
-	}
-	if config.Insecure {
-		opts = append(opts, otlpmetricgrpc.WithInsecure())
-	}
-	if len(config.Headers) > 0 {
-		opts = append(opts, otlpmetricgrpc.WithHeaders(config.Headers))
-	}
-	if r := config.Retry; r != nil {
-		opts = append(opts, otlpmetricgrpc.WithRetry(otlpmetricgrpc.RetryConfig{
-			Enabled: true, InitialInterval: r.InitialInterval, MaxInterval: r.MaxInterval, MaxElapsedTime: r.MaxElapsedTime,
-		}))
-	}
-
-	exp, err := otlpmetricgrpc.New(context.Background(), opts...)
-	if err != nil {
-		return nil, fmt.Errorf("create otlp grpc exporter: %w", err)
-	}
-	return exp, nil
-}
-
-func newHTTPExporter(config *models.OTLPConfig) (*otlpmetrichttp.Exporter, error) {
-	opts := []otlpmetrichttp.Option{
-		otlpmetrichttp.WithEndpoint(config.Endpoint),
-	}
-	if config.Insecure {
-		opts = append(opts, otlpmetrichttp.WithInsecure())
-	}
-	if len(config.Headers) > 0 {
-		opts = append(opts, otlpmetrichttp.WithHeaders(config.Headers))
-	}
-	if r := config.Retry; r != nil {
-		opts = append(opts, otlpmetrichttp.WithRetry(otlpmetrichttp.RetryConfig{
-			Enabled: true, InitialInterval: r.InitialInterval, MaxInterval: r.MaxInterval, MaxElapsedTime: r.MaxElapsedTime,
-		}))
-	}
-
-	exp, err := otlpmetrichttp.New(context.Background(), opts...)
-	if err != nil {
-		return nil, fmt.Errorf("create otlp http exporter: %w", err)
-	}
-	return exp, nil
-}
-
 // ExportTimeout is the per-export deadline: the configured ExportTimeout, or 10s.
 func (e *Exporter) ExportTimeout() time.Duration {
-	if e.config.ExportTimeout == 0 {
-		return 10 * time.Second
-	}
-	return e.config.ExportTimeout
+	return exportTimeout(e.config)
 }
 
 // Export sends metrics to OTLP collector. With cumulative temporality the
