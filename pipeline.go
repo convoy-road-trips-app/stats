@@ -55,6 +55,10 @@ type Pipeline struct {
 	// Per-exporter error counters (index corresponds to exporters slice)
 	exporterErrors []atomic.Uint64
 
+	// Error counters for failure sources that are not exporters, by name
+	// (for example "runtimemetrics.delay"); values are *atomic.Uint64.
+	sourceErrors sync.Map
+
 	// Tag validation and per-metric series limits (MaxCardinality)
 	cardinality cardinalityLimiter
 }
@@ -381,7 +385,30 @@ func (p *Pipeline) getExporterErrors() map[string]uint64 {
 	for i, exp := range p.exporters {
 		errors[exp.Name()] = p.exporterErrors[i].Load()
 	}
+	p.sourceErrors.Range(func(k, v any) bool {
+		errors[k.(string)] += v.(*atomic.Uint64).Load()
+		return true
+	})
 	return errors
+}
+
+// RecordExporterError counts one failure under name in
+// PipelineStats.ExporterErrors and in Errors. A name that matches no exporter
+// gets its own entry, so callers outside the pipeline (such as the runtime
+// metrics collector) can report failures. It is safe for concurrent use.
+func (p *Pipeline) RecordExporterError(name string) {
+	p.errors.Add(1)
+	for i, exp := range p.exporters {
+		if exp.Name() == name {
+			p.exporterErrors[i].Add(1)
+			return
+		}
+	}
+	counter, ok := p.sourceErrors.Load(name)
+	if !ok {
+		counter, _ = p.sourceErrors.LoadOrStore(name, new(atomic.Uint64))
+	}
+	counter.(*atomic.Uint64).Add(1)
 }
 
 // PipelineStats contains statistics about the pipeline

@@ -11,13 +11,14 @@ import (
 	"github.com/convoy-road-trips-app/stats/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 func TestCollectOnce(t *testing.T) {
 	var mu sync.Mutex
 	captured := map[string]models.MetricType{}
 
-	c := New(Config{CollectInterval: time.Minute, Prefix: "runtime.go"}, func(name string, mtype models.MetricType, value float64) {
+	c := New(Config{CollectInterval: time.Minute, Prefix: "runtime.go"}, func(name string, mtype models.MetricType, value float64, _ ...attribute.KeyValue) {
 		mu.Lock()
 		defer mu.Unlock()
 		captured[name] = mtype
@@ -43,7 +44,7 @@ func TestCustomPrefix(t *testing.T) {
 	var mu sync.Mutex
 	captured := map[string]bool{}
 
-	c := New(Config{Prefix: "custom_prefix"}, func(name string, _ models.MetricType, _ float64) {
+	c := New(Config{Prefix: "custom_prefix"}, func(name string, _ models.MetricType, _ float64, _ ...attribute.KeyValue) {
 		mu.Lock()
 		defer mu.Unlock()
 		captured[name] = true
@@ -61,7 +62,7 @@ func TestCustomPrefix(t *testing.T) {
 func TestStartStop(t *testing.T) {
 	before := runtime.NumGoroutine()
 
-	c := New(Config{CollectInterval: 10 * time.Millisecond, Prefix: "test"}, func(string, models.MetricType, float64) {})
+	c := New(Config{CollectInterval: 10 * time.Millisecond, Prefix: "test"}, func(string, models.MetricType, float64, ...attribute.KeyValue) {})
 	c.Start()
 	time.Sleep(30 * time.Millisecond)
 
@@ -80,7 +81,7 @@ func TestStartStop(t *testing.T) {
 func TestDoubleStart(t *testing.T) {
 	before := runtime.NumGoroutine()
 
-	c := New(Config{CollectInterval: 10 * time.Millisecond, Prefix: "test"}, func(string, models.MetricType, float64) {})
+	c := New(Config{CollectInterval: 10 * time.Millisecond, Prefix: "test"}, func(string, models.MetricType, float64, ...attribute.KeyValue) {})
 	c.Start()
 	c.Start()
 
@@ -99,7 +100,7 @@ func TestDoubleStart(t *testing.T) {
 }
 
 func TestStopWithoutStart(t *testing.T) {
-	c := New(Config{CollectInterval: 10 * time.Millisecond, Prefix: "test"}, func(string, models.MetricType, float64) {})
+	c := New(Config{CollectInterval: 10 * time.Millisecond, Prefix: "test"}, func(string, models.MetricType, float64, ...attribute.KeyValue) {})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

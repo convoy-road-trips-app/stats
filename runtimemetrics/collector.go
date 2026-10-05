@@ -8,17 +8,29 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"github.com/convoy-road-trips-app/stats/models"
 )
 
 // RecordFunc is the callback the collector uses to emit metrics.
-// The client injects this to route runtime metrics into the pipeline.
-type RecordFunc func(name string, mtype models.MetricType, value float64)
+// The client injects this to route runtime metrics into the pipeline. attrs
+// are attached to the emitted metric.
+type RecordFunc func(name string, mtype models.MetricType, value float64, attrs ...attribute.KeyValue)
 
 // Config holds the runtime metrics collector configuration.
 type Config struct {
 	CollectInterval time.Duration
 	Prefix          string
+
+	// ProcessMetrics enables process-level metrics (CPU, memory, files, threads).
+	ProcessMetrics bool
+	// DelayMetrics enables kernel scheduler delay metrics.
+	DelayMetrics bool
+	// OnError, if set, is called when a metric source fails. source names the
+	// failing source (for example "delay"); the client counts it under
+	// ExporterErrors["runtimemetrics.<source>"].
+	OnError func(source string, err error)
 }
 
 type metricMapping struct {
@@ -67,7 +79,7 @@ type Collector struct {
 // New creates a Collector. If record is nil, a no-op is used.
 func New(cfg Config, record RecordFunc) *Collector {
 	if record == nil {
-		record = func(string, models.MetricType, float64) {}
+		record = func(string, models.MetricType, float64, ...attribute.KeyValue) {}
 	}
 
 	mappings := getMappings()

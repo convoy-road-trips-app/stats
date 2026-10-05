@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/convoy-road-trips-app/stats/runtimemetrics"
 )
@@ -52,7 +53,7 @@ func stuckCollector(t *testing.T) *runtimemetrics.Collector {
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	collector := runtimemetrics.New(runtimemetrics.Config{CollectInterval: time.Millisecond},
-		func(string, MetricType, float64) {
+		func(string, MetricType, float64, ...attribute.KeyValue) {
 			if !armed.Load() {
 				return // the synchronous sample taken by Start
 			}

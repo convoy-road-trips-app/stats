@@ -43,6 +43,13 @@ func WithAttribute(key, value string) MetricOption {
 	}
 }
 
+// withKeyValues appends already-typed attributes to the metric.
+func withKeyValues(attrs []attribute.KeyValue) MetricOption {
+	return func(m *Metric) {
+		m.Attributes = append(m.Attributes, attrs...)
+	}
+}
+
 // WithAttributes adds multiple attributes to the metric
 func WithAttributes(attrs map[string]string) MetricOption {
 	return func(m *Metric) {

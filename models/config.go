@@ -86,6 +86,8 @@ type RuntimeMetricsConfig struct {
 	Enabled         bool
 	CollectInterval time.Duration
 	Prefix          string
+	ProcessMetrics  bool
+	DelayMetrics    bool
 }
 
 // DefaultRuntimeMetricsConfig returns the default runtime metrics configuration

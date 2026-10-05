@@ -71,28 +71,43 @@ func NewClient(opts ...Option) (*Client, error) {
 	}
 
 	if cfg.RuntimeMetrics != nil && cfg.RuntimeMetrics.Enabled {
-		record := func(name string, mtype MetricType, value float64) {
-			ctx := context.Background()
-			switch mtype {
-			case MetricTypeGauge:
-				_ = client.Gauge(ctx, name, value)
-			case MetricTypeCounter:
-				_ = client.Counter(ctx, name, value)
-			case MetricTypeHistogram:
-				_ = client.Histogram(ctx, name, value)
-			}
-		}
-		client.core.collector = runtimemetrics.New(
-			runtimemetrics.Config{
-				CollectInterval: cfg.RuntimeMetrics.CollectInterval,
-				Prefix:          cfg.RuntimeMetrics.Prefix,
-			},
-			record,
-		)
+		client.core.collector = runtimemetrics.New(client.runtimeConfig(cfg.RuntimeMetrics), client.runtimeRecord)
 		client.core.collector.Start()
 	}
 
 	return client, nil
+}
+
+// runtimeConfig builds the collector configuration. Collector failures are
+// counted under ExporterErrors["runtimemetrics.<source>"].
+func (c *Client) runtimeConfig(rc *RuntimeMetricsConfig) runtimemetrics.Config {
+	return runtimemetrics.Config{
+		CollectInterval: rc.CollectInterval,
+		Prefix:          rc.Prefix,
+		ProcessMetrics:  rc.ProcessMetrics,
+		DelayMetrics:    rc.DelayMetrics,
+		OnError: func(source string, _ error) {
+			c.core.pipeline.RecordExporterError("runtimemetrics." + source)
+		},
+	}
+}
+
+// runtimeRecord is the runtimemetrics.RecordFunc that routes collector output
+// into the pipeline.
+func (c *Client) runtimeRecord(name string, mtype MetricType, value float64, attrs ...attribute.KeyValue) {
+	ctx := context.Background()
+	var opts []MetricOption
+	if len(attrs) > 0 {
+		opts = []MetricOption{withKeyValues(attrs)}
+	}
+	switch mtype {
+	case MetricTypeGauge:
+		_ = c.Gauge(ctx, name, value, opts...)
+	case MetricTypeCounter:
+		_ = c.Counter(ctx, name, value, opts...)
+	case MetricTypeHistogram:
+		_ = c.Histogram(ctx, name, value, opts...)
+	}
 }
 
 // Counter records a counter metric
