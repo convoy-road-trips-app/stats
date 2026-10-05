@@ -16,6 +16,8 @@ const defaultWriteTimeout = 100 * time.Millisecond
 // ErrUnsupportedNetwork is returned by NewPool for networks it cannot dial.
 var ErrUnsupportedNetwork = errors.New("transport: unsupported network")
 
+const networkUnixgram = "unixgram"
+
 // Conn is the datagram connection abstraction used by the pool.
 // Both *net.UDPConn and *net.UnixConn satisfy it.
 type Conn interface {
@@ -53,12 +55,13 @@ func NewUDPConnPool(address string, poolSize int) (*UDPConnPool, error) {
 	return NewPool("udp", address, poolSize, defaultWriteTimeout)
 }
 
-// NewPool creates a connection pool for the given network ("udp", "udp4" or
-// "udp6"). timeout is the write deadline applied when the context carries none;
+// NewPool creates a connection pool for the given network ("udp", "udp4",
+// "udp6" or "unixgram"; unixgram is unavailable on Windows and yields
+// ErrUnsupportedNetwork there). timeout is the write deadline applied when the context carries none;
 // a non-positive timeout selects the 100ms default.
 func NewPool(network, address string, poolSize int, timeout time.Duration) (*UDPConnPool, error) {
 	switch network {
-	case "udp", "udp4", "udp6":
+	case "udp", "udp4", "udp6", "unixgram":
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnsupportedNetwork, network)
 	}
@@ -70,9 +73,13 @@ func NewPool(network, address string, poolSize int, timeout time.Duration) (*UDP
 		timeout = defaultWriteTimeout
 	}
 
-	addr, err := net.ResolveUDPAddr(network, address)
-	if err != nil {
-		return nil, fmt.Errorf("resolve UDP address: %w", err)
+	var addr *net.UDPAddr
+	if network != networkUnixgram {
+		var err error
+		addr, err = net.ResolveUDPAddr(network, address)
+		if err != nil {
+			return nil, fmt.Errorf("resolve UDP address: %w", err)
+		}
 	}
 
 	pool := &UDPConnPool{
@@ -99,19 +106,28 @@ func NewPool(network, address string, poolSize int, timeout time.Duration) (*UDP
 
 // createConnection creates a new UDP connection with optimized settings
 func (p *UDPConnPool) createConnection() (Conn, error) {
-	conn, err := net.DialUDP(p.network, nil, p.addr)
+	if p.network == networkUnixgram {
+		conn, err := dialUnixgram(p.address)
+		if err != nil {
+			return nil, err
+		}
+		p.activeConns.Add(1)
+		return conn, nil
+	}
+
+	udpConn, err := net.DialUDP(p.network, nil, p.addr)
 	if err != nil {
 		return nil, err
 	}
 
 	// Set write buffer size for performance (1MB)
-	if err := conn.SetWriteBuffer(1024 * 1024); err != nil {
-		conn.Close()
+	if err := udpConn.SetWriteBuffer(1024 * 1024); err != nil {
+		_ = udpConn.Close()
 		return nil, fmt.Errorf("set write buffer: %w", err)
 	}
 
 	p.activeConns.Add(1)
-	return conn, nil
+	return udpConn, nil
 }
 
 // Get retrieves a connection from the pool

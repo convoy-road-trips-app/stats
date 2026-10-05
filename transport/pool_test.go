@@ -43,7 +43,7 @@ func TestNewPoolUDPDelivers(t *testing.T) {
 }
 
 func TestNewPoolUnsupportedNetwork(t *testing.T) {
-	for _, network := range []string{"tcp", "unixgram", ""} {
+	for _, network := range []string{"tcp", ""} {
 		pool, err := NewPool(network, "127.0.0.1:8125", 1, time.Second)
 		if err == nil {
 			pool.Close()
