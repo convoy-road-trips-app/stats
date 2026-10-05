@@ -41,6 +41,16 @@ func (n *NoOpClient) Timing(ctx context.Context, name string, duration time.Dura
 	return nil
 }
 
+// WithPrefix returns n itself: a no-op client has no names to prefix.
+func (n *NoOpClient) WithPrefix(prefix string, opts ...MetricOption) *NoOpClient {
+	return n
+}
+
+// WithTags returns n itself: a no-op client has no metrics to tag.
+func (n *NoOpClient) WithTags(opts ...MetricOption) *NoOpClient {
+	return n
+}
+
 func (n *NoOpClient) Stats() ClientStats {
 	return ClientStats{}
 }

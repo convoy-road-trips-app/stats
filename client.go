@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,10 +29,13 @@ type clientCore struct {
 }
 
 // Client is the main stats library client. It is a thin handle over a shared
-// clientCore; NewClient returns the root handle.
+// clientCore; NewClient returns the root handle, and WithPrefix and WithTags
+// return immutable views that record through the same core.
 type Client struct {
-	core *clientCore
-	root bool
+	core   *clientCore
+	prefix string               // prepended, joined with ".", to every metric name
+	tags   []attribute.KeyValue // applied before context tags; never mutated
+	root   bool                 // true only for the client NewClient returned
 }
 
 // NewClient creates a new stats client with the given options
@@ -113,6 +118,51 @@ func (c *Client) RecordMetric(ctx context.Context, m *Metric) error {
 	return c.record(ctx, m, nil)
 }
 
+// WithPrefix returns a view of c that prepends prefix to every metric name,
+// joined to the parent's prefix and the metric name with ".". Empty parts are
+// skipped, so WithPrefix("api").WithPrefix("v1") records "req" as "api.v1.req".
+// opts add tags to the view, exactly as WithTags does; only their attributes
+// are used.
+//
+// The view shares the parent's pipeline and lifecycle: Close and Shutdown on a
+// view do nothing and return nil, Flush and Stats act on the root, and
+// recording fails with ErrClientClosed once the root is closed. The view is
+// immutable and safe for concurrent use.
+func (c *Client) WithPrefix(prefix string, opts ...MetricOption) *Client {
+	v := c.view(opts)
+	v.prefix = joinName(c.prefix, prefix)
+	return v
+}
+
+// WithTags returns a view of c that keeps its prefix and adds tags from opts
+// (for example WithAttribute); other option effects are ignored. View tags are
+// applied before context tags, the metric's own attributes and explicit
+// options, and a later tag wins over an earlier one with the same key, so a
+// child's tag overrides its parent's. Lifecycle is as for WithPrefix.
+func (c *Client) WithTags(opts ...MetricOption) *Client {
+	return c.view(opts)
+}
+
+// view returns a non-root copy of c whose tags are c's tags followed by the
+// attributes opts add.
+func (c *Client) view(opts []MetricOption) *Client {
+	var scratch Metric
+	for _, opt := range opts {
+		opt(&scratch)
+	}
+	return &Client{
+		core:   c.core,
+		prefix: c.prefix,
+		tags:   slices.Concat(c.tags, scratch.Attributes),
+	}
+}
+
+// joinName joins the non-empty parts with ".".
+func joinName(parts ...string) string {
+	parts = slices.DeleteFunc(slices.Clone(parts), func(s string) bool { return s == "" })
+	return strings.Join(parts, ".")
+}
+
 // recordValue validates the input, builds a pooled metric and records it. The
 // metric returns to the pool when recording fails.
 func (c *Client) recordValue(ctx context.Context, typ MetricType, name string, value float64, opts []MetricOption) error {
@@ -138,10 +188,11 @@ func (c *Client) recordValue(ctx context.Context, typ MetricType, name string, v
 }
 
 // record is the single, non-recursive recording path. It takes core.mu.RLock
-// once, fails with ErrClientClosed after shutdown, builds the attributes (context
-// tags, then the metric's existing attributes, then the explicit options; the
-// last value wins on a duplicate key) and hands m to the pipeline, which
-// validates every key. It never releases m; the caller owns it on error.
+// once, fails with ErrClientClosed after shutdown, prefixes and validates the
+// name, builds the attributes (view tags, then context tags, then the metric's
+// existing attributes, then the explicit options; the last value wins on a
+// duplicate key) and hands m to the pipeline, which validates every key. It
+// never releases m; the caller owns it on error, and m's name is then restored.
 func (c *Client) record(ctx context.Context, m *Metric, opts []MetricOption) error {
 	core := c.core
 	core.mu.RLock()
@@ -151,12 +202,24 @@ func (c *Client) record(ctx context.Context, m *Metric, opts []MetricOption) err
 		return ErrClientClosed
 	}
 
+	name := m.Name
+	m.Name = joinName(c.prefix, name)
+	if err := validateMetricName(m.Name); err != nil {
+		m.Name = name
+		return err
+	}
+
 	prependContextTags(ctx, m)
+	m.Attributes = slices.Insert(m.Attributes, 0, c.tags...)
 	for _, opt := range opts {
 		opt(m)
 	}
 
-	return core.pipeline.Record(ctx, m)
+	if err := core.pipeline.Record(ctx, m); err != nil {
+		m.Name = name
+		return err
+	}
+	return nil
 }
 
 // isClosed reports whether the core has begun shutting down.
@@ -288,14 +351,8 @@ func (mb *MetricBuilder) Build() *Metric {
 
 // validateMetricInput validates metric name and value
 func validateMetricInput(name string, value float64) error {
-	// Validate metric name
-	if name == "" {
-		return fmt.Errorf("%w: metric name cannot be empty", ErrInvalidConfig)
-	}
-
-	// Prevent excessively long names (DoS protection)
-	if len(name) > 256 {
-		return fmt.Errorf("%w: metric name exceeds maximum length (256 characters)", ErrInvalidConfig)
+	if err := validateMetricName(name); err != nil {
+		return err
 	}
 
 	// Validate value is not NaN or Inf
@@ -307,5 +364,17 @@ func validateMetricInput(name string, value float64) error {
 		return fmt.Errorf("%w: metric value cannot be Inf", ErrInvalidConfig)
 	}
 
+	return nil
+}
+
+// validateMetricName rejects an empty name and one longer than 256 characters
+// (DoS protection). record applies it to the full, prefixed name.
+func validateMetricName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: metric name cannot be empty", ErrInvalidConfig)
+	}
+	if len(name) > 256 {
+		return fmt.Errorf("%w: metric name exceeds maximum length (256 characters)", ErrInvalidConfig)
+	}
 	return nil
 }

@@ -9,7 +9,8 @@ import (
 
 // Flush exports every observation recorded before the call, including pending
 // drop counters, and returns once it has been exported, or with ctx's error once
-// ctx is done. Call it before a Lambda handler returns.
+// ctx is done. Call it before a Lambda handler returns. On a view it flushes the
+// root's pipeline.
 func (c *Client) Flush(ctx context.Context) error {
 	if c.core.isClosed() {
 		return ErrClientClosed
@@ -19,8 +20,13 @@ func (c *Client) Flush(ctx context.Context) error {
 
 // Shutdown gracefully shuts down the client. It stops the runtime collector
 // and drains the pipeline even when the collector fails to stop, and reports
-// both failures, joined with errors.Join, when both occur.
+// both failures, joined with errors.Join, when both occur. On a view created by
+// WithPrefix or WithTags it does nothing and returns nil: only the root client
+// owns the pipeline.
 func (c *Client) Shutdown(ctx context.Context) error {
+	if !c.root {
+		return nil
+	}
 	return c.core.shutdown(ctx)
 }
 
@@ -58,8 +64,12 @@ func joinShutdownErrors(collectorErr, pipelineErr error) error {
 	return errors.Join(collectorErr, pipelineErr)
 }
 
-// Close closes the client with a default 5-second timeout
+// Close closes the client with a default 5-second timeout. On a view created by
+// WithPrefix or WithTags it does nothing and returns nil.
 func (c *Client) Close() error {
+	if !c.root {
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return c.Shutdown(ctx)
