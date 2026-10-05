@@ -38,4 +38,9 @@ var (
 	// segments, ^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$ (http.method is valid);
 	// the observation is not recorded
 	ErrInvalidTagKey = errors.New("stats: invalid tag key")
+
+	// ErrUnsupportedReportField is returned by Report and ReportAt when the
+	// value, or a field of it that carries a metric or tag struct tag, has a
+	// kind that cannot be reported; nothing is recorded in that case
+	ErrUnsupportedReportField = errors.New("stats: unsupported report field")
 )
