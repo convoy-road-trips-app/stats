@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -47,6 +48,8 @@ func TestNewClient_OTLP_resource_uses_environment_when_identity_is_not_explicit(
 	defer func() { require.NoError(t, client.Shutdown(context.Background())) }()
 
 	// Then
+	host, err := os.Hostname()
+	require.NoError(t, err)
 	var request *collectormetricspb.ExportMetricsServiceRequest
 	select {
 	case request = <-received:
@@ -62,5 +65,6 @@ func TestNewClient_OTLP_resource_uses_environment_when_identity_is_not_explicit(
 		"deployment.environment": "production",
 		"service.version":        "2.4.1",
 		"team":                   "payments",
+		"service.instance.id":    host,
 	}, attrs)
 }

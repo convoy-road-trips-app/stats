@@ -1,6 +1,7 @@
 package otlp
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -112,6 +113,42 @@ func TestParseResourceAttributes_percent_decodes_values_like_the_OTel_SDK(t *tes
 	assertAttributeValue(t, attrs, "service.name", "checkout api")
 	assertAttributeValue(t, attrs, "team", "pay,ments")
 	assertAttributeValue(t, attrs, "discount", "50%")
+}
+
+func TestToResourceMetricsWithConfig_DefaultServiceInstanceIDIsHostname(t *testing.T) {
+	// Given
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "")
+	host, err := os.Hostname()
+	require.NoError(t, err)
+
+	// When
+	rm := toResourceMetricsWithConfig(&models.OTLPConfig{}, nil, models.DefaultHistogramBuckets())
+
+	// Then
+	assertAttributeValue(t, attribute.NewSet(rm.Resource.Attributes()...), "service.instance.id", host)
+}
+
+func TestToResourceMetricsWithConfig_ServiceInstanceIDFromEnvironment(t *testing.T) {
+	// Given
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "service.instance.id=task-from-env")
+
+	// When
+	rm := toResourceMetricsWithConfig(&models.OTLPConfig{}, nil, models.DefaultHistogramBuckets())
+
+	// Then
+	assertAttributeValue(t, attribute.NewSet(rm.Resource.Attributes()...), "service.instance.id", "task-from-env")
+}
+
+func TestToResourceMetricsWithConfig_ServiceInstanceIDFromConfigOverridesEnvironment(t *testing.T) {
+	// Given
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "service.instance.id=task-from-env")
+	config := &models.OTLPConfig{ResourceAttributes: []attribute.KeyValue{attribute.String("service.instance.id", "task-from-config")}}
+
+	// When
+	rm := toResourceMetricsWithConfig(config, nil, models.DefaultHistogramBuckets())
+
+	// Then
+	assertAttributeValue(t, attribute.NewSet(rm.Resource.Attributes()...), "service.instance.id", "task-from-config")
 }
 
 func assertAttributeValue(t *testing.T, attrs attribute.Set, key, want string) {

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Default `service.instance.id` resource attribute**: OTLP exports now set `service.instance.id` to the hostname when neither `OTEL_RESOURCE_ATTRIBUTES` nor `WithOTLPResourceAttributes` provides one (a random hex ID if there is no hostname). Previously replicas of one service exported identical series, so cumulative counters from different processes interleaved as false resets and gauges flapped between replicas. Prometheus-compatible backends receive it as the `instance` label, so expect one series per replica; aggregate with `sum`/`max` across `instance`. To opt out, set `service.instance.id` explicitly (for example `OTEL_RESOURCE_ATTRIBUTES=service.instance.id=<name>`).
+
 ## [1.2.2] - 2026-10-01
 
 ### Fixed

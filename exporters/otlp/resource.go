@@ -1,10 +1,13 @@
 package otlp
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"net/url"
 	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -42,6 +45,9 @@ func resourceForConfig(config *models.OTLPConfig) *resource.Resource {
 	} else if _, ok := attrs["deployment.environment"]; !ok {
 		attrs["deployment.environment"] = attribute.String("deployment.environment", "unknown")
 	}
+	if _, ok := attrs["service.instance.id"]; !ok {
+		attrs["service.instance.id"] = attribute.String("service.instance.id", defaultInstanceID())
+	}
 	if config.ServiceVersion != "" {
 		attrs["service.version"] = attribute.String("service.version", config.ServiceVersion)
 	} else if _, ok := attrs["service.version"]; !ok {
@@ -58,6 +64,19 @@ func resourceForConfig(config *models.OTLPConfig) *resource.Resource {
 	}
 	return resource.NewWithAttributes(config.ResourceSchemaURL, values...)
 }
+
+// defaultInstanceID identifies this process so replicas of one service export distinct
+// series (Prometheus-compatible backends map it to the "instance" label). The hostname is
+// unique per container/task and stable across restarts in place, which keeps series churn
+// low; a random ID is used only when no hostname is available.
+var defaultInstanceID = sync.OnceValue(func() string {
+	if host, err := os.Hostname(); err == nil && host != "" {
+		return host
+	}
+	b := make([]byte, 16)
+	_, _ = rand.Read(b) // never returns an error (crypto/rand docs)
+	return hex.EncodeToString(b)
+})
 
 func applyEnvironmentAttribute(attrs map[string]attribute.KeyValue, key, env string) {
 	if value, ok := os.LookupEnv(env); ok && value != "" {

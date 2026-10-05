@@ -121,7 +121,7 @@ func TestToResourceMetrics(t *testing.T) {
 	// Verify Resource
 	assert.NotNil(t, rm.Resource)
 	attrs := rm.Resource.Attributes()
-	assert.Len(t, attrs, 3)
+	assert.Len(t, attrs, 4) // service.name, deployment.environment, service.version, service.instance.id
 	assertAttributeValue(t, attribute.NewSet(attrs...), "service.name", "my-service")
 
 	// Verify ScopeMetrics
@@ -242,7 +242,7 @@ func TestToResourceMetrics_EmptyServiceName(t *testing.T) {
 	rm := toResourceMetrics("", metrics)
 
 	attrs := rm.Resource.Attributes()
-	assert.Len(t, attrs, 3)
+	assert.Len(t, attrs, 4) // service.name, deployment.environment, service.version, service.instance.id
 	resourceAttrs := attribute.NewSet(attrs...)
 	assertAttributeValue(t, resourceAttrs, "service.name", "unknown_service")
 	assertAttributeValue(t, resourceAttrs, "deployment.environment", "unknown")

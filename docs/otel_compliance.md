@@ -166,6 +166,8 @@ These rules apply to the OTLP exporter (`stats.WithOTLP`) in both modes.
 
 `service.name`, `deployment.environment` and `service.version` resolve in this order (later wins): `OTEL_RESOURCE_ATTRIBUTES` < `OTEL_SERVICE_NAME` / `DEPLOYMENT_ENVIRONMENT` / `SERVICE_VERSION` < explicit options (`WithServiceName`, `WithEnvironment`, `WithOTLPResourceAttributes`, `otel.WithResource`). Missing identity falls back to `unknown_service` / `unknown`. `OTEL_RESOURCE_ATTRIBUTES` values are percent-decoded as in the OTel SDK; a malformed escape is kept unchanged.
 
+`service.instance.id` follows the same order and defaults to the process hostname (a random hex ID if there is none). Without it, two replicas of a service export identical series, so their cumulative counters interleave as false resets and gauges flap between replicas. The hostname is used instead of the per-process UUID the semantic conventions suggest: it is unique per container or ECS task and stays the same across in-place restarts, so it does not mint new series on every restart.
+
 The resource schema URL is exported as `ResourceMetrics.schema_url`. It comes from the `otel.WithResource` resource (for example `resource.NewWithAttributes(semconv.SchemaURL, ...)`) or from `stats.WithOTLPResourceSchemaURL`; it is empty by default.
 
 ### Metric Metadata

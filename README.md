@@ -222,6 +222,7 @@ OTLP export semantics (v1.1.0):
 - Counters and histograms are **cumulative** by default (`stats.WithTemporality(stats.Delta)` opts out; Prometheus' OTLP receiver drops delta series).
 - Histograms use explicit buckets: by default the D9 seconds bounds `0.005 … 10`, overridable with `stats.WithHistogramBuckets(...)`. In Prometheus they appear as `_bucket{le=...}`, `_count` and `_sum`.
 - `service.name`, `deployment.environment` and `service.version` come from options, `OTEL_SERVICE_NAME` / `DEPLOYMENT_ENVIRONMENT` / `SERVICE_VERSION`, or `OTEL_RESOURCE_ATTRIBUTES`.
+- `service.instance.id` defaults to the hostname so replicas export distinct series (the `instance` label in Prometheus-compatible backends); override it with `OTEL_RESOURCE_ATTRIBUTES` or `WithOTLPResourceAttributes`.
 - The resource schema URL comes from `otel.WithResource` or `stats.WithOTLPResourceSchemaURL`. Metric description and unit are exported for observable instruments and for `stats.WithDescription` / `stats.WithUnit`.
 - Counter and histogram observations recorded under a sampled span carry `trace_id`/`span_id` exemplars.
 - `stats.WithOTLPRetry(...)` retries retryable failures. Background exports are bounded by `WithUDPTimeout` (100 ms default); raise it for remote collectors.
