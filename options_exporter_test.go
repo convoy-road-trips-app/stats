@@ -70,9 +70,11 @@ func TestWithExporterNilIsInvalidConfig(t *testing.T) {
 
 func TestWithExporterDuplicateNameIsInvalidConfig(t *testing.T) {
 	t.Run("custom and custom", func(t *testing.T) {
+		a := &MockExporter{name: "dup"}
+		b := &MockExporter{name: "dup"}
 		_, err := NewClient(
-			WithExporter(&MockExporter{name: "dup"}),
-			WithExporter(&MockExporter{name: "dup"}),
+			WithExporter(a),
+			WithExporter(b),
 		)
 		require.ErrorIs(t, err, ErrInvalidConfig)
 	})
