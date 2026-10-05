@@ -163,3 +163,20 @@ func TestOTelHistogram_trims_dotted_keys_to_10_and_caps_values_at_256(t *testing
 	require.Equal(t, 256, utf8.RuneCountInString(sets[0]["a.long"]))
 	require.Equal(t, map[string]float64{"label_limit": 2}, receiver.droppedTotals())
 }
+
+func TestOTelCounterGetsContextTags(t *testing.T) {
+	// Given: a context carrying tags and a counter from the OTel bridge
+	receiver := newMetricsReceiver(t)
+	provider := receiver.provider(t)
+	counter, err := provider.Meter("ctx").Int64Counter("ctx_requests_total")
+	require.NoError(t, err)
+	ctx := stats.ContextWithTags(context.Background(),
+		attribute.String("region", "eu"), attribute.String("tier", "gold"))
+
+	// When: an explicit attribute overrides one of them
+	counter.Add(ctx, 1, metric.WithAttributes(attribute.String("tier", "silver")))
+	require.NoError(t, provider.ForceFlush(context.Background()))
+
+	// Then: the exported series carries the context tag and the override
+	require.Equal(t, []map[string]string{{"region": "eu", "tier": "silver"}}, receiver.wireAttributes("ctx_requests_total"))
+}
