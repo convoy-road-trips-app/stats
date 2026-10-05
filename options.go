@@ -2,12 +2,16 @@ package stats
 
 import (
 	"cmp"
+	"maps"
 	"slices"
 	"time"
 
 	"github.com/convoy-road-trips-app/stats/models"
 	"go.opentelemetry.io/otel/attribute"
 )
+
+// ref returns a pointer to a copy of v, for OTLPOverrides fields.
+func ref[T any](v T) *T { return &v }
 
 // Option is a function that configures the stats client
 type Option func(*Config)
@@ -30,6 +34,38 @@ func WithTemporality(temporality Temporality) Option {
 			c.OTLP = &OTLPConfig{}
 		}
 		c.OTLP.Temporality = temporality
+		c.OTLPOverrides.Temporality = ref(temporality)
+	}
+}
+
+// WithOTLPExportTimeout sets the per-export deadline of the OTLP exporter. It
+// beats OTEL_EXPORTER_OTLP_TIMEOUT.
+func WithOTLPExportTimeout(d time.Duration) Option {
+	return func(c *Config) {
+		if c.OTLP == nil {
+			c.OTLP = &OTLPConfig{}
+		}
+		c.OTLP.ExportTimeout = d
+		c.OTLPOverrides.Timeout = ref(d)
+	}
+}
+
+// WithOTLPExportInterval sets how often batched metrics are handed to the
+// exporters, which is how often OTLP exports. It is the same pipeline flush
+// interval as WithFlushInterval, and beats OTEL_METRIC_EXPORT_INTERVAL.
+func WithOTLPExportInterval(d time.Duration) Option {
+	return WithFlushInterval(d)
+}
+
+// WithOTLPFromEnv enables the OTLP exporter and configures it from the
+// OTEL_EXPORTER_OTLP_* environment variables. Options given after it win over
+// the environment; the environment alone never enables OTLP.
+func WithOTLPFromEnv() Option {
+	return func(c *Config) {
+		if c.OTLP == nil {
+			c.OTLP = &OTLPConfig{}
+		}
+		c.OTLP.Enabled = true
 	}
 }
 
@@ -83,6 +119,7 @@ func WithWorkers(workers int) Option {
 func WithFlushInterval(interval time.Duration) Option {
 	return func(c *Config) {
 		c.FlushInterval = interval
+		c.FlushIntervalSet = true
 	}
 }
 
@@ -189,6 +226,7 @@ func WithOTLP(cfg *OTLPConfig) Option {
 		merged := *cfg
 		merged.ResourceAttributes = slices.Clone(cfg.ResourceAttributes)
 		merged.HistogramBuckets = slices.Clone(cfg.HistogramBuckets)
+		merged.Headers = maps.Clone(cfg.Headers)
 		if c.OTLP != nil {
 			if merged.HistogramBuckets == nil {
 				merged.HistogramBuckets = c.OTLP.HistogramBuckets
@@ -202,6 +240,17 @@ func WithOTLP(cfg *OTLPConfig) Option {
 		}
 		merged.Enabled = true
 		c.OTLP = &merged
+		// A passed struct is a complete explicit statement: every field is
+		// stated, so a zero Insecure or empty Headers beats the environment.
+		c.OTLPOverrides = OTLPOverrides{
+			Endpoint:    ref(merged.Endpoint),
+			Insecure:    ref(merged.Insecure),
+			Headers:     ref(maps.Clone(merged.Headers)),
+			Timeout:     ref(merged.ExportTimeout),
+			Compression: ref(merged.Compression),
+			Protocol:    ref(merged.Protocol),
+			Temporality: ref(merged.Temporality),
+		}
 	}
 }
 

@@ -18,14 +18,17 @@ const (
 // Config holds the complete configuration for the stats client
 type Config struct {
 	// Global configuration
-	ServiceName    string
-	Environment    string
-	BufferSize     int
-	Workers        int
-	FlushInterval  time.Duration
-	UDPTimeout     time.Duration
-	MaxMemoryBytes int64
-	MaxCardinality int
+	ServiceName   string
+	Environment   string
+	BufferSize    int
+	Workers       int
+	FlushInterval time.Duration
+	// FlushIntervalSet reports that the flush interval was chosen with an option,
+	// so OTEL_METRIC_EXPORT_INTERVAL must not replace it.
+	FlushIntervalSet bool
+	UDPTimeout       time.Duration
+	MaxMemoryBytes   int64
+	MaxCardinality   int
 
 	// Backpressure configuration
 	DropStrategy     DropStrategy
@@ -40,10 +43,13 @@ type Config struct {
 	RateLimitBurst     int     // Maximum burst size
 
 	// Backend configurations
-	CloudWatch     *CloudWatchConfig
-	Prometheus     *PrometheusConfig
-	Datadog        *DatadogConfig
-	OTLP           *OTLPConfig
+	CloudWatch *CloudWatchConfig
+	Prometheus *PrometheusConfig
+	Datadog    *DatadogConfig
+	OTLP       *OTLPConfig
+	// OTLPOverrides holds the OTLP settings stated through options, in option
+	// order. NewClient resolves each field as: override, else OTEL_* environment, else default.
+	OTLPOverrides  OTLPOverrides
 	RuntimeMetrics *RuntimeMetricsConfig
 
 	// Exporters are custom exporters registered after the built-in ones.

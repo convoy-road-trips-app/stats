@@ -35,12 +35,10 @@ type Client struct {
 
 // NewClient creates a new stats client with the given options
 func NewClient(opts ...Option) (*Client, error) {
-	// Start with default config
-	cfg := DefaultConfig()
-
-	// Apply options
-	for _, opt := range opts {
-		opt(cfg)
+	// Defaults, then options, then OTEL_* environment for what options left open
+	cfg, err := buildConfig(opts)
+	if err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
 	// Validate configuration

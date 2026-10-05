@@ -21,6 +21,8 @@ type (
 	OTLPConfig = models.OTLPConfig
 	// RuntimeMetricsConfig is the runtime metrics configuration struct
 	RuntimeMetricsConfig = models.RuntimeMetricsConfig
+	// OTLPOverrides records the OTLP settings stated explicitly through options
+	OTLPOverrides = models.OTLPOverrides
 	// OTLPRetry bounds retries of failed OTLP exports
 	OTLPRetry = models.OTLPRetry
 	// OTLPProtocol selects gRPC or HTTP transport

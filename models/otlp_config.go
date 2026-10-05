@@ -41,6 +41,7 @@ type OTLPConfig struct {
 	ResourceSchemaURL     string        // Schema URL of the exported resource, e.g. semconv.SchemaURL; empty by default
 	Temporality           Temporality   // "cumulative" (default) or "delta"
 	Protocol              OTLPProtocol  // "grpc" (default) or "http"
+	Compression           string        // "gzip" or "none"; empty means the transport default
 	ExportTimeout         time.Duration // Per-export deadline; defaults to 10s if zero
 	HistogramBuckets      []float64     // Explicit histogram bounds; defaults to the D9 seconds buckets when nil
 	// BucketsByName holds explicit histogram bounds per metric name; an entry
@@ -48,6 +49,20 @@ type OTLPConfig struct {
 	// WithHistogramBucketsFor. Bounds are in the units you record in.
 	BucketsByName map[string][]float64
 	Retry         *OTLPRetry // Retry policy for retryable export failures; nil keeps the SDK default
+}
+
+// OTLPOverrides records the OTLP settings a caller stated explicitly through
+// options. A nil pointer means "not stated", so the environment (or the
+// default) applies; a non-nil pointer always wins, even when it points at a
+// zero value (Insecure=false) or an empty map (Headers cleared).
+type OTLPOverrides struct {
+	Endpoint    *string
+	Insecure    *bool
+	Headers     *map[string]string
+	Timeout     *time.Duration
+	Compression *string
+	Protocol    *OTLPProtocol
+	Temporality *Temporality
 }
 
 // OTLPRetry is an exponential-backoff policy for retryable OTLP export
@@ -107,6 +122,14 @@ func BucketsFor(byName map[string][]float64, global []float64, name string) []fl
 func (c *OTLPConfig) Validate() error {
 	if c.Temporality != "" && c.Temporality != Cumulative && c.Temporality != Delta {
 		return fmt.Errorf("unsupported temporality %q (use %q or %q)", c.Temporality, Cumulative, Delta)
+	}
+	switch c.Compression {
+	case "", "gzip", "none":
+	default:
+		return fmt.Errorf("unsupported compression %q (use \"gzip\" or \"none\")", c.Compression)
+	}
+	if c.ExportTimeout < 0 {
+		return fmt.Errorf("export timeout must not be negative")
 	}
 	if c.HistogramBuckets != nil {
 		if err := ValidateHistogramBuckets(c.HistogramBuckets); err != nil {
