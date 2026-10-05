@@ -136,3 +136,55 @@ func BenchmarkDogStatsDSerializer(b *testing.B) {
 		}
 	}
 }
+
+func histogram(name string) *models.Metric {
+	return &models.Metric{Name: name, Type: models.MetricTypeHistogram, Value: 2}
+}
+
+func serializeOne(t *testing.T, s *DogStatsDSerializer, m *models.Metric) string {
+	t.Helper()
+	packets, err := s.Serialize([]*models.Metric{m})
+	require.NoError(t, err)
+	require.Len(t, packets, 1)
+	return string(packets[0])
+}
+
+func TestDefaultHistogramIsH(t *testing.T) {
+	s := NewDogStatsDSerializer(nil)
+	assert.Equal(t, "latency:2|h", serializeOne(t, s, histogram("latency")))
+}
+
+func TestUseDistributions(t *testing.T) {
+	s := NewDogStatsDSerializer([]string{"env:prod"}, WithDistributions(true))
+
+	assert.Equal(t, "latency:2|d|#env:prod", serializeOne(t, s, histogram("latency")))
+	// Only histograms change type.
+	assert.Equal(t, "c:1|c|#env:prod", serializeOne(t, s, &models.Metric{Name: "c", Type: models.MetricTypeCounter, Value: 1}))
+	assert.Equal(t, "g:3|g|#env:prod", serializeOne(t, s, &models.Metric{Name: "g", Type: models.MetricTypeGauge, Value: 3}))
+}
+
+func TestDistributionPrefixes(t *testing.T) {
+	s := NewDogStatsDSerializer(nil, WithDistributionPrefixes([]string{"http.", "db.query"}))
+
+	assert.Equal(t, "http.latency:2|d", serializeOne(t, s, histogram("http.latency")))
+	assert.Equal(t, "db.query.time:2|d", serializeOne(t, s, histogram("db.query.time")))
+	assert.Equal(t, "cache.latency:2|h", serializeOne(t, s, histogram("cache.latency")), "non-matching prefix stays |h")
+	assert.Equal(t, "my.http.latency:2|h", serializeOne(t, s, histogram("my.http.latency")), "prefix must match the start of the name")
+	// Counters and gauges are unaffected even when the name matches.
+	assert.Equal(t, "http.requests:1|c", serializeOne(t, s, &models.Metric{Name: "http.requests", Type: models.MetricTypeCounter, Value: 1}))
+	assert.Equal(t, "http.conns:4|g", serializeOne(t, s, &models.Metric{Name: "http.conns", Type: models.MetricTypeGauge, Value: 4}))
+}
+
+func TestDistributionPrefixesEmptyPrefixMatchesAll(t *testing.T) {
+	s := NewDogStatsDSerializer(nil, WithDistributionPrefixes([]string{""}))
+	assert.Equal(t, "x:2|d", serializeOne(t, s, histogram("x")))
+}
+
+func TestDistributionPrefixesCopied(t *testing.T) {
+	prefixes := []string{"http."}
+	s := NewDogStatsDSerializer(nil, WithDistributionPrefixes(prefixes))
+	prefixes[0] = "db."
+
+	assert.Equal(t, "http.latency:2|d", serializeOne(t, s, histogram("http.latency")))
+	assert.Equal(t, "db.latency:2|h", serializeOne(t, s, histogram("db.latency")))
+}

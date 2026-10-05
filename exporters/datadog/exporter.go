@@ -33,6 +33,7 @@ func NewExporter(config *models.DatadogConfig) (*Exporter, error) {
 
 	cfg := *config
 	cfg.Tags = slices.Clone(config.Tags)
+	cfg.DistributionPrefixes = slices.Clone(config.DistributionPrefixes)
 
 	network, address, err := cfg.ResolveEndpoint()
 	if err != nil {
@@ -40,7 +41,10 @@ func NewExporter(config *models.DatadogConfig) (*Exporter, error) {
 	}
 
 	// Create DogStatsD serializer with global tags
-	serializer := serializers.NewDogStatsDSerializer(cfg.Tags)
+	serializer := serializers.NewDogStatsDSerializer(cfg.Tags,
+		serializers.WithDistributions(cfg.UseDistributions),
+		serializers.WithDistributionPrefixes(cfg.DistributionPrefixes),
+	)
 
 	// Create base exporter
 	base, err := exporters.NewBaseExporterNetwork("datadog", network, address, serializer)

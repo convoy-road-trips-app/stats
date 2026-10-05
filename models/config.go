@@ -93,6 +93,17 @@ type DatadogConfig struct {
 	// MaxDatadogBufferSize.
 	BufferSize int
 	Tags       []string
+	// UseDistributions sends every histogram as a Datadog distribution
+	// ("|d") instead of a histogram ("|h").
+	UseDistributions bool
+	// DistributionPrefixes lists metric name prefixes. A histogram whose full
+	// metric name (including any client prefix) starts with one of them is
+	// sent as a distribution ("|d"); other histograms stay "|h". Unlike the
+	// segmentio datadog client, which matched individual field names, the
+	// whole metric name is matched. An empty prefix matches every name.
+	// Counters and gauges are never affected. UseDistributions takes
+	// precedence when set.
+	DistributionPrefixes []string
 }
 
 const (
