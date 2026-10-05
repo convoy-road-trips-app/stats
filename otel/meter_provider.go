@@ -62,6 +62,26 @@ func NewMeterProvider(opts ...MeterProviderOption) (*MeterProvider, error) {
 	return mp, nil
 }
 
+// NewMeterProviderFromEnv is NewMeterProvider with stats.WithOTLPFromEnv
+// prepended: the OTLP exporter is enabled and configured from the standard
+// OTEL_EXPORTER_OTLP_* environment variables, and OTEL_SDK_DISABLED=true turns
+// every instrument into a no-op. opts apply after it, so an explicit option
+// such as WithStatsOptions(stats.WithOTLP(...)) wins over the environment.
+func NewMeterProviderFromEnv(opts ...MeterProviderOption) (*MeterProvider, error) {
+	all := make([]MeterProviderOption, 0, len(opts)+1)
+	all = append(all, WithStatsOptions(stats.WithOTLPFromEnv()))
+	return NewMeterProvider(append(all, opts...)...)
+}
+
+// Client returns the stats client behind the provider. It shares the pipeline
+// and exporters with every instrument, so OTel users can reach the core
+// features that have no OTel counterpart: stats.Report, Observe, WithPrefix
+// and the rest of the *stats.Client API. Do not Close or Shutdown it
+// separately; MeterProvider.Shutdown owns its lifecycle.
+func (mp *MeterProvider) Client() *stats.Client {
+	return mp.client
+}
+
 // Meter creates a new Meter with the given name and options
 func (mp *MeterProvider) Meter(name string, opts ...metric.MeterOption) metric.Meter {
 	mp.mu.Lock()
