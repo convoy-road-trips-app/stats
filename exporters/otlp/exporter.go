@@ -146,11 +146,7 @@ func (e *Exporter) export(ctx context.Context, metrics []*models.Metric) error {
 	ctx, cancel := context.WithTimeout(ctx, e.ExportTimeout())
 	defer cancel()
 
-	bounds := e.config.HistogramBuckets
-	if bounds == nil {
-		bounds = models.DefaultHistogramBuckets()
-	}
-	rm := toResourceMetricsWithConfig(e.config, metrics, bounds)
+	rm := toResourceMetricsWithConfig(e.config, metrics, e.config.HistogramBuckets)
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	next := e.accumulate(&rm, time.Now())
@@ -177,7 +173,9 @@ func toResourceMetricsWithBuckets(serviceName string, metrics []*models.Metric, 
 	return toResourceMetricsWithConfig(&models.OTLPConfig{ServiceName: serviceName}, metrics, bounds)
 }
 
-func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Metric, bounds []float64) metricdata.ResourceMetrics {
+// toResourceMetricsWithConfig converts metrics to OTLP data. Each histogram
+// uses config.BucketsByName for its name, then globalBounds, then the defaults.
+func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Metric, globalBounds []float64) metricdata.ResourceMetrics {
 	res := resourceForConfig(config)
 	temporality := config.Temporality
 	if temporality == "" {
@@ -198,6 +196,7 @@ func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Me
 		if m.Type != models.MetricTypeHistogram {
 			continue
 		}
+		bounds := models.BucketsFor(config.BucketsByName, globalBounds, m.Name)
 		attrs := attribute.NewSet(m.Attributes...)
 		key := histogramKey{name: m.Name, attributes: attrs.Equivalent()}
 		histogram, exists := histograms[m.Name]

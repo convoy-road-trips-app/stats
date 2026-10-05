@@ -3,6 +3,7 @@ package stats
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync/atomic"
 
 	"github.com/convoy-road-trips-app/stats/exporters/cloudwatch"
@@ -91,6 +92,16 @@ func newOTLPExporter(cfg *Config) (*otlp.Exporter, error) {
 	}
 	if cfg.OTLP.DeploymentEnvironment == "" && cfg.Environment != defaults.Environment {
 		cfg.OTLP.DeploymentEnvironment = cfg.Environment
+	}
+	if len(cfg.HistogramBucketsByName) > 0 {
+		byName := make(map[string][]float64, len(cfg.OTLP.BucketsByName)+len(cfg.HistogramBucketsByName))
+		for name, bounds := range cfg.OTLP.BucketsByName {
+			byName[name] = slices.Clone(bounds)
+		}
+		for name, bounds := range cfg.HistogramBucketsByName {
+			byName[name] = slices.Clone(bounds)
+		}
+		cfg.OTLP.BucketsByName = byName
 	}
 	otlpExporter, err := otlp.NewExporter(cfg.OTLP)
 	if err != nil {

@@ -43,7 +43,11 @@ type OTLPConfig struct {
 	Protocol              OTLPProtocol  // "grpc" (default) or "http"
 	ExportTimeout         time.Duration // Per-export deadline; defaults to 10s if zero
 	HistogramBuckets      []float64     // Explicit histogram bounds; defaults to the D9 seconds buckets when nil
-	Retry                 *OTLPRetry    // Retry policy for retryable export failures; nil keeps the SDK default
+	// BucketsByName holds explicit histogram bounds per metric name; an entry
+	// overrides HistogramBuckets for that metric. NewClient fills it from
+	// WithHistogramBucketsFor. Bounds are in the units you record in.
+	BucketsByName map[string][]float64
+	Retry         *OTLPRetry // Retry policy for retryable export failures; nil keeps the SDK default
 }
 
 // OTLPRetry is an exponential-backoff policy for retryable OTLP export
@@ -107,6 +111,11 @@ func (c *OTLPConfig) Validate() error {
 	if c.HistogramBuckets != nil {
 		if err := ValidateHistogramBuckets(c.HistogramBuckets); err != nil {
 			return err
+		}
+	}
+	for name, bounds := range c.BucketsByName {
+		if err := ValidateHistogramBuckets(bounds); err != nil {
+			return fmt.Errorf("histogram buckets for %q: %w", name, err)
 		}
 	}
 	if c.Retry != nil {
