@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`OTEL_SDK_DISABLED`**: when it is `true` (case-insensitive), `NewClient` and `otel.NewMeterProvider` start no pipeline, exporter or runtime collector and dial nothing. Every recording method (and views from `WithPrefix`/`WithTags`) does nothing and returns nil without validating input; `Flush`, `Shutdown` and `Close` return nil; `Stats()` returns a zero `ClientStats` with an empty `ExporterErrors` map; observable callbacks are never registered. `Client.Disabled()` reports the state.
 - **Default `service.instance.id` resource attribute**: OTLP exports now set `service.instance.id` to the hostname when neither `OTEL_RESOURCE_ATTRIBUTES` nor `WithOTLPResourceAttributes` provides one (a random hex ID if there is no hostname). Previously replicas of one service exported identical series, so cumulative counters from different processes interleaved as false resets and gauges flapped between replicas. Prometheus-compatible backends receive it as the `instance` label, so expect one series per replica; aggregate with `sum`/`max` across `instance`. To opt out, set `service.instance.id` explicitly (for example `OTEL_RESOURCE_ATTRIBUTES=service.instance.id=<name>`).
 
 ### Fixed

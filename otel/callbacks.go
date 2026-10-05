@@ -37,6 +37,7 @@ var (
 // one collection at a time, on ForceFlush, on Shutdown and every interval.
 type callbackRegistry struct {
 	interval  time.Duration
+	disabled  bool       // OTEL_SDK_DISABLED: callbacks are never registered or run
 	collectMu sync.Mutex // serializes collections; callbacks never run concurrently
 
 	mu        sync.Mutex // guards the fields below
@@ -58,8 +59,12 @@ func newCallbackRegistry(interval time.Duration) *callbackRegistry {
 }
 
 // register adds run to every following collection and starts the periodic
-// loop on first use. The returned function removes it; it is idempotent.
+// loop on first use; a disabled registry registers nothing. The returned
+// function removes it; it is idempotent.
 func (r *callbackRegistry) register(run func(context.Context) error) (unregister func()) {
+	if r.disabled {
+		return func() {}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.nextID++

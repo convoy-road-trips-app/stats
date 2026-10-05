@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	envSDKDisabled      = "OTEL_SDK_DISABLED"
 	envServiceName      = "OTEL_SERVICE_NAME"
 	envExportInterval   = "OTEL_METRIC_EXPORT_INTERVAL"
 	envTemporality      = "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE"
@@ -22,6 +23,13 @@ const (
 	envGenericPrefix    = "OTEL_EXPORTER_OTLP_"
 	metricsEndpointPath = "/v1/metrics"
 )
+
+// sdkDisabled reports whether OTEL_SDK_DISABLED is "true", compared
+// case-insensitively after trimming space. Any other value, including an
+// unrecognised one, leaves the SDK enabled.
+func sdkDisabled() bool {
+	return strings.EqualFold(envValue(envSDKDisabled), "true")
+}
 
 // buildConfig applies the defaults, the OTEL_SERVICE_NAME default and the
 // options, then fills the OTLP settings the options left open from the

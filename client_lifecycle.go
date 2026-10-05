@@ -12,6 +12,9 @@ import (
 // ctx is done. Call it before a Lambda handler returns. On a view it flushes the
 // root's pipeline.
 func (c *Client) Flush(ctx context.Context) error {
+	if c.core.disabled {
+		return nil
+	}
 	if c.core.isClosed() {
 		return ErrClientClosed
 	}
@@ -31,6 +34,9 @@ func (c *Client) Shutdown(ctx context.Context) error {
 }
 
 func (core *clientCore) shutdown(ctx context.Context) error {
+	if core.disabled {
+		return nil
+	}
 	var shutdownErr error
 
 	core.shutdownOnce.Do(func() {

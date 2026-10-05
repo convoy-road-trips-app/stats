@@ -22,6 +22,11 @@ type clientCore struct {
 	pipeline  *Pipeline
 	collector *runtimemetrics.Collector
 
+	// disabled is set once by NewClient when OTEL_SDK_DISABLED is true. A
+	// disabled core has no pipeline, no exporters and no collector, and every
+	// operation on it is a no-op; it is immutable, so it is read without mu.
+	disabled bool
+
 	// Shutdown coordination
 	shutdownOnce sync.Once
 	closed       bool
@@ -39,7 +44,17 @@ type Client struct {
 }
 
 // NewClient creates a new stats client with the given options
+//
+// When the OTEL_SDK_DISABLED environment variable is "true" (case-insensitive,
+// surrounding space ignored, as the OpenTelemetry specification defines it)
+// NewClient returns a disabled client without reading the options or the other
+// OTEL_* variables: no pipeline or exporter is created, nothing is dialed, and
+// every method does nothing and returns nil. See Disabled.
 func NewClient(opts ...Option) (*Client, error) {
+	if sdkDisabled() {
+		return &Client{core: &clientCore{cfg: DefaultConfig(), disabled: true}, root: true}, nil
+	}
+
 	// Defaults, then options, then OTEL_* environment for what options left open
 	cfg, err := buildConfig(opts)
 	if err != nil {
@@ -76,6 +91,13 @@ func NewClient(opts ...Option) (*Client, error) {
 	}
 
 	return client, nil
+}
+
+// Disabled reports whether the client was created while OTEL_SDK_DISABLED was
+// true. A disabled client, and every view of it, records nothing and returns
+// nil from every method.
+func (c *Client) Disabled() bool {
+	return c.core.disabled
 }
 
 // runtimeConfig builds the collector configuration. Collector failures are
@@ -181,6 +203,9 @@ func joinName(parts ...string) string {
 // recordValue validates the input, builds a pooled metric and records it. The
 // metric returns to the pool when recording fails.
 func (c *Client) recordValue(ctx context.Context, typ MetricType, name string, value float64, opts []MetricOption) error {
+	if c.core.disabled {
+		return nil
+	}
 	if err := validateMetricInput(name, value); err != nil {
 		// A closed client reports ErrClientClosed in preference to bad input.
 		if c.core.isClosed() {
@@ -210,6 +235,9 @@ func (c *Client) recordValue(ctx context.Context, typ MetricType, name string, v
 // never releases m; the caller owns it on error, and m's name is then restored.
 func (c *Client) record(ctx context.Context, m *Metric, opts []MetricOption) error {
 	core := c.core
+	if core.disabled {
+		return nil
+	}
 	core.mu.RLock()
 	defer core.mu.RUnlock()
 
@@ -266,9 +294,13 @@ func (c *Client) Timing(ctx context.Context, name string, duration time.Duration
 	return c.Histogram(ctx, name, ms, opts...)
 }
 
-// Stats returns client statistics
+// Stats returns client statistics. A disabled client, or a view of one, returns
+// a zero ClientStats whose Pipeline.ExporterErrors is an empty, non-nil map.
 func (c *Client) Stats() ClientStats {
 	core := c.core
+	if core.disabled {
+		return ClientStats{Pipeline: PipelineStats{ExporterErrors: map[string]uint64{}}}
+	}
 	core.mu.RLock()
 	defer core.mu.RUnlock()
 

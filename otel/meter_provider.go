@@ -58,6 +58,7 @@ func NewMeterProvider(opts ...MeterProviderOption) (*MeterProvider, error) {
 		return nil, err
 	}
 	mp.observers = newCallbackRegistry(mp.collectionInterval)
+	mp.observers.disabled = mp.client.Disabled()
 	return mp, nil
 }
 
