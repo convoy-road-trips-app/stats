@@ -51,7 +51,7 @@ func getMappings() []metricMapping {
 		{"/gc/heap/allocs:objects", []string{"heap.allocs.objects"}},
 		{"/gc/heap/frees:objects", []string{"heap.frees.objects"}},
 		{"/gc/heap/objects:objects", []string{"heap.objects.live"}},
-		{"/gc/heap/goal:bytes", []string{"heap.goal.bytes"}},
+		{"/gc/heap/goal:bytes", []string{"heap.goal.bytes", "gc.next.bytes"}},
 		{"/gc/cycles/total:gc-cycles", []string{"gc.cycles.total"}},
 		{"/cpu/classes/gc/total:cpu-seconds", []string{"gc.cpu.seconds", "cpu.gc.seconds"}},
 		{"/sched/goroutines:goroutines", []string{"goroutines"}},
@@ -70,6 +70,17 @@ type Collector struct {
 	samples []metrics.Sample
 	names   [][]string
 
+	// sampleIdx maps a runtime/metrics name to its index in samples.
+	sampleIdx map[string]int
+	// derived are the MemStats-parity metrics computed from samples.
+	derived []derivedMapping
+	// pauseIdx is the index of the GC pause histogram sample, or -1.
+	pauseIdx int
+
+	// mu serializes collections; pauses holds the previous histogram snapshot.
+	mu     sync.Mutex
+	pauses pauseTracker
+
 	startOnce sync.Once
 	stopOnce  sync.Once
 	stopCh    chan struct{}
@@ -83,30 +94,60 @@ func New(cfg Config, record RecordFunc) *Collector {
 	}
 
 	mappings := getMappings()
-	samples := make([]metrics.Sample, len(mappings))
-	names := make([][]string, len(mappings))
+	derived := getDerivedMappings()
+	samples := make([]metrics.Sample, 0, len(mappings)+len(derived)*2+1)
+	names := make([][]string, 0, cap(samples))
+	sampleIdx := make(map[string]int, cap(samples))
 
-	prefix := cfg.Prefix
-	if prefix != "" && prefix[len(prefix)-1] != '.' {
-		prefix += "."
+	prefix := normalizePrefix(cfg.Prefix)
+
+	// addSample registers a runtime/metrics name once, with its metric names.
+	addSample := func(name string, metricNames []string) {
+		if _, ok := sampleIdx[name]; ok {
+			return
+		}
+		sampleIdx[name] = len(samples)
+		samples = append(samples, metrics.Sample{Name: name})
+		names = append(names, metricNames)
 	}
 
-	for i, m := range mappings {
-		samples[i].Name = m.runtimeName
+	for _, m := range mappings {
 		prefixedNames := make([]string, len(m.metricNames))
 		for j, n := range m.metricNames {
 			prefixedNames[j] = prefix + n
 		}
-		names[i] = prefixedNames
+		addSample(m.runtimeName, prefixedNames)
 	}
 
+	// Extra samples feed the derived metrics and the GC pause histogram. They
+	// carry no direct metric names.
+	for _, d := range derived {
+		for _, src := range d.sources {
+			addSample(src, nil)
+		}
+	}
+	addSample(gcPausesName, nil)
+
 	return &Collector{
-		cfg:     cfg,
-		record:  record,
-		samples: samples,
-		names:   names,
+		cfg:       cfg,
+		record:    record,
+		samples:   samples,
+		names:     names,
+		sampleIdx: sampleIdx,
+		derived:   derived,
+		pauseIdx:  sampleIdx[gcPausesName],
 	}
 }
+
+// normalizePrefix returns prefix with exactly one trailing dot, or "" if empty.
+func normalizePrefix(prefix string) string {
+	if prefix != "" && prefix[len(prefix)-1] != '.' {
+		return prefix + "."
+	}
+	return prefix
+}
+
+func (c *Collector) prefix() string { return normalizePrefix(c.cfg.Prefix) }
 
 // Start begins periodic collection. Idempotent.
 func (c *Collector) Start() {
@@ -163,6 +204,9 @@ func (c *Collector) Collect() {
 }
 
 func (c *Collector) collectOnce() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	metrics.Read(c.samples)
 
 	for i := range c.samples {
@@ -189,10 +233,11 @@ func (c *Collector) collectOnce() {
 		}
 	}
 
-	gomaxprocs := float64(runtime.GOMAXPROCS(0))
-	prefix := c.cfg.Prefix
-	if prefix != "" && prefix[len(prefix)-1] != '.' {
-		prefix += "."
+	c.recordDerived()
+	if v := c.samples[c.pauseIdx].Value; v.Kind() == metrics.KindFloat64Histogram {
+		c.recordPauseStats(v.Float64Histogram())
 	}
-	c.record(prefix+"gomaxprocs", models.MetricTypeGauge, gomaxprocs)
+
+	gomaxprocs := float64(runtime.GOMAXPROCS(0))
+	c.record(c.prefix()+"gomaxprocs", models.MetricTypeGauge, gomaxprocs)
 }

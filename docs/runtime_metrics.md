@@ -52,6 +52,14 @@ All metrics are emitted as **gauges with absolute values**. The default prefix i
 | `runtime.go.memory.heap.released` | `/memory/classes/heap/released:bytes` | Bytes released to the OS |
 | `runtime.go.memory.sys` | `/memory/classes/total:bytes` | Total bytes obtained from OS |
 | `runtime.go.memory.stack.inuse` | `/memory/classes/heap/stacks:bytes` | Bytes in stack spans |
+| `runtime.go.memory.stack.sys` | `heap/stacks` + `os-stacks` | Stack bytes obtained from the OS |
+| `runtime.go.memory.mspan.inuse` | `/memory/classes/metadata/mspan/inuse:bytes` | Bytes of in-use mspan structures |
+| `runtime.go.memory.mspan.sys` | `mspan/inuse` + `mspan/free` | mspan bytes obtained from the OS |
+| `runtime.go.memory.mcache.inuse` | `/memory/classes/metadata/mcache/inuse:bytes` | Bytes of in-use mcache structures |
+| `runtime.go.memory.mcache.sys` | `mcache/inuse` + `mcache/free` | mcache bytes obtained from the OS |
+| `runtime.go.memory.buckhash.sys` | `/memory/classes/profiling/buckets:bytes` | Profiling bucket hash table bytes |
+| `runtime.go.memory.gc.sys` | `/memory/classes/metadata/other:bytes` | GC metadata bytes |
+| `runtime.go.memory.other.sys` | `/memory/classes/other:bytes` | Other off-heap runtime bytes |
 
 ### Heap Allocations
 
@@ -70,6 +78,13 @@ All metrics are emitted as **gauges with absolute values**. The default prefix i
 |---|---|---|
 | `runtime.go.gc.cycles.total` | `/gc/cycles/total:gc-cycles` | Total completed GC cycles |
 | `runtime.go.gc.cpu.seconds` | `/cpu/classes/gc/total:cpu-seconds` | CPU time spent in GC |
+| `runtime.go.gc.next.bytes` | `/gc/heap/goal:bytes` | Target heap size for next GC (alias of `heap.goal.bytes`) |
+| `runtime.go.gc.cpu.fraction` | `/cpu/classes/gc/total` / `/cpu/classes/total` | Fraction of CPU time used by GC since process start; `0` until the runtime has accounted CPU time |
+| `runtime.go.gc.pause.seconds.min` | `/gc/pauses:seconds` delta | Lower bound of the lowest non-empty pause bucket since the previous collect (approximation) |
+| `runtime.go.gc.pause.seconds.max` | `/gc/pauses:seconds` delta | Upper bound of the highest non-empty pause bucket since the previous collect (approximation) |
+| `runtime.go.gc.pause.seconds.avg` | `/gc/pauses:seconds` delta | Count-weighted bucket-midpoint mean pause since the previous collect (approximation) |
+
+The `gc.pause.seconds.*` gauges are computed from the difference between the current and previous `/gc/pauses:seconds` histogram snapshots. They are **not emitted** (rather than reported as NaN) when no GC pause occurred since the previous collect. `min`/`max` are histogram bucket bounds, not exact pause durations. Metrics whose `runtime/metrics` source is missing on the running Go version are skipped.
 
 ### Scheduler
 
@@ -124,7 +139,7 @@ Note: The `stats_` prefix comes from the Prometheus exporter's configured Job na
 - `runtime.GOMAXPROCS(0)` as a direct scalar
 
 ### Excluded (future work)
-- **GC pause histogram** (`/gc/pauses:seconds`): This is a `Float64Histogram` with cumulative bucket counts. Representing it cleanly requires multi-bucket emission or per-interval diffing, which adds complexity. Deferred to a future version.
+- **Full GC pause histogram** (`/gc/pauses:seconds`) emission: only per-interval min/max/avg summaries are emitted (see above).
 - **Observable/async OTel instruments**: Not supported by the library's OTel implementation.
 
 ## Performance
