@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/convoy-road-trips-app/stats/models"
 	"github.com/convoy-road-trips-app/stats/transport"
@@ -29,7 +30,7 @@ type Serializer interface {
 
 // NewBaseExporter creates a new base exporter
 func NewBaseExporter(name, address string, serializer Serializer) (*BaseExporter, error) {
-	pool, err := transport.NewUDPConnPool(address, 4)
+	pool, err := transport.NewPool("udp", address, 4, 100*time.Millisecond)
 	if err != nil {
 		return nil, fmt.Errorf("create UDP pool: %w", err)
 	}

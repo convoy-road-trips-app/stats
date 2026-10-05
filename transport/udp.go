@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -9,13 +10,29 @@ import (
 	"time"
 )
 
-// UDPConnPool manages a pool of UDP connections for high-throughput sending
+// defaultWriteTimeout is the write deadline used when the context has none.
+const defaultWriteTimeout = 100 * time.Millisecond
+
+// ErrUnsupportedNetwork is returned by NewPool for networks it cannot dial.
+var ErrUnsupportedNetwork = errors.New("transport: unsupported network")
+
+// Conn is the datagram connection abstraction used by the pool.
+// Both *net.UDPConn and *net.UnixConn satisfy it.
+type Conn interface {
+	Write([]byte) (int, error)
+	SetWriteDeadline(time.Time) error
+	Close() error
+}
+
+// UDPConnPool manages a pool of datagram connections for high-throughput sending
 type UDPConnPool struct {
+	network string
 	address string
 	addr    *net.UDPAddr
+	timeout time.Duration
 
 	// Pool of connections
-	pool chan *net.UDPConn
+	pool chan Conn
 
 	// Pool configuration
 	maxConns int
@@ -30,21 +47,40 @@ type UDPConnPool struct {
 	totalErrors atomic.Uint64
 }
 
-// NewUDPConnPool creates a new UDP connection pool
+// NewUDPConnPool creates a new UDP connection pool.
+// It is a thin wrapper around NewPool("udp", ...) with the default write timeout.
 func NewUDPConnPool(address string, poolSize int) (*UDPConnPool, error) {
+	return NewPool("udp", address, poolSize, defaultWriteTimeout)
+}
+
+// NewPool creates a connection pool for the given network ("udp", "udp4" or
+// "udp6"). timeout is the write deadline applied when the context carries none;
+// a non-positive timeout selects the 100ms default.
+func NewPool(network, address string, poolSize int, timeout time.Duration) (*UDPConnPool, error) {
+	switch network {
+	case "udp", "udp4", "udp6":
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedNetwork, network)
+	}
+
 	if poolSize <= 0 {
 		poolSize = 4 // Default to 4 connections
 	}
+	if timeout <= 0 {
+		timeout = defaultWriteTimeout
+	}
 
-	addr, err := net.ResolveUDPAddr("udp", address)
+	addr, err := net.ResolveUDPAddr(network, address)
 	if err != nil {
 		return nil, fmt.Errorf("resolve UDP address: %w", err)
 	}
 
 	pool := &UDPConnPool{
+		network:  network,
 		address:  address,
 		addr:     addr,
-		pool:     make(chan *net.UDPConn, poolSize),
+		timeout:  timeout,
+		pool:     make(chan Conn, poolSize),
 		maxConns: poolSize,
 	}
 
@@ -62,8 +98,8 @@ func NewUDPConnPool(address string, poolSize int) (*UDPConnPool, error) {
 }
 
 // createConnection creates a new UDP connection with optimized settings
-func (p *UDPConnPool) createConnection() (*net.UDPConn, error) {
-	conn, err := net.DialUDP("udp", nil, p.addr)
+func (p *UDPConnPool) createConnection() (Conn, error) {
+	conn, err := net.DialUDP(p.network, nil, p.addr)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +115,7 @@ func (p *UDPConnPool) createConnection() (*net.UDPConn, error) {
 }
 
 // Get retrieves a connection from the pool
-func (p *UDPConnPool) Get(ctx context.Context) (*net.UDPConn, error) {
+func (p *UDPConnPool) Get(ctx context.Context) (Conn, error) {
 	p.mu.RLock()
 	if p.closed {
 		p.mu.RUnlock()
@@ -96,7 +132,7 @@ func (p *UDPConnPool) Get(ctx context.Context) (*net.UDPConn, error) {
 }
 
 // Put returns a connection to the pool
-func (p *UDPConnPool) Put(conn *net.UDPConn) {
+func (p *UDPConnPool) Put(conn Conn) {
 	if conn == nil {
 		return
 	}
@@ -132,7 +168,7 @@ func (p *UDPConnPool) Send(ctx context.Context, data []byte) error {
 	// Set write deadline from context or default
 	deadline, ok := ctx.Deadline()
 	if !ok {
-		deadline = time.Now().Add(100 * time.Millisecond)
+		deadline = time.Now().Add(p.timeout)
 	}
 
 	if err := conn.SetWriteDeadline(deadline); err != nil {
@@ -172,7 +208,7 @@ func (p *UDPConnPool) SendBatch(ctx context.Context, dataList [][]byte) error {
 	// Set write deadline from context or default
 	deadline, ok := ctx.Deadline()
 	if !ok {
-		deadline = time.Now().Add(100 * time.Millisecond)
+		deadline = time.Now().Add(p.timeout)
 	}
 
 	if err := conn.SetWriteDeadline(deadline); err != nil {
