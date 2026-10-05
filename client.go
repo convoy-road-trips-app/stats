@@ -29,10 +29,8 @@ type clientCore struct {
 // Client is the main stats library client. It is a thin handle over a shared
 // clientCore; NewClient returns the root handle.
 type Client struct {
-	core   *clientCore
-	prefix string
-	tags   []attribute.KeyValue
-	root   bool
+	core *clientCore
+	root bool
 }
 
 // NewClient creates a new stats client with the given options

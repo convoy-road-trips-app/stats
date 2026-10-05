@@ -13,7 +13,7 @@ var _ Conn = (*net.UDPConn)(nil)
 func TestNewPoolUDPDelivers(t *testing.T) {
 	for _, network := range []string{"udp", "udp4"} {
 		t.Run(network, func(t *testing.T) {
-			ln, err := net.ListenPacket(network, "127.0.0.1:0")
+			ln, err := (&net.ListenConfig{}).ListenPacket(context.Background(), network, "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -56,7 +56,7 @@ func TestNewPoolUnsupportedNetwork(t *testing.T) {
 }
 
 func TestNewUDPConnPoolWrapper(t *testing.T) {
-	ln, err := net.ListenPacket("udp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).ListenPacket(context.Background(), "udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}

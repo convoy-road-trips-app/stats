@@ -46,7 +46,7 @@ func (r *recorder) status() int {
 func (r *recorder) WriteHeader(code int) {
 	// 1xx responses other than 101 are informational; the final header
 	// follows, so they do not fix the status.
-	if !r.written && !(code >= 100 && code < 200 && code != http.StatusSwitchingProtocols) {
+	if !r.written && (code < 100 || code >= 200 || code == http.StatusSwitchingProtocols) {
 		r.code = code
 		r.written = true
 	}

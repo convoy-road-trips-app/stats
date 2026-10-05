@@ -116,7 +116,7 @@ func ValidateConfig(c *Config) error {
 
 	for name, bounds := range c.HistogramBucketsByName {
 		if err := models.ValidateHistogramBuckets(bounds); err != nil {
-			return fmt.Errorf("%w: histogram buckets for %q: %v", ErrInvalidConfig, name, err)
+			return fmt.Errorf("%w: histogram buckets for %q: %w", ErrInvalidConfig, name, err)
 		}
 	}
 
