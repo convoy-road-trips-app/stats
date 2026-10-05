@@ -106,7 +106,7 @@ func ValidateConfig(c *Config) error {
 
 	if c.Datadog != nil && c.Datadog.Enabled {
 		if err := c.Datadog.Validate(); err != nil {
-			return fmt.Errorf("datadog config: %w", err)
+			return fmt.Errorf("%w: datadog config: %w", ErrInvalidConfig, err)
 		}
 	}
 

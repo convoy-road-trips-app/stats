@@ -28,11 +28,17 @@ type Serializer interface {
 	Name() string
 }
 
-// NewBaseExporter creates a new base exporter
+// NewBaseExporter creates a new base exporter that sends over UDP
 func NewBaseExporter(name, address string, serializer Serializer) (*BaseExporter, error) {
-	pool, err := transport.NewPool("udp", address, 4, 100*time.Millisecond)
+	return NewBaseExporterNetwork(name, "udp", address, serializer)
+}
+
+// NewBaseExporterNetwork creates a new base exporter that sends over the given
+// network ("udp" or "unixgram"; see transport.NewPool).
+func NewBaseExporterNetwork(name, network, address string, serializer Serializer) (*BaseExporter, error) {
+	pool, err := transport.NewPool(network, address, 4, 100*time.Millisecond)
 	if err != nil {
-		return nil, fmt.Errorf("create UDP pool: %w", err)
+		return nil, fmt.Errorf("create %s pool: %w", network, err)
 	}
 
 	breaker := transport.NewCircuitBreaker(5, 10)
@@ -71,13 +77,30 @@ func (e *BaseExporter) doExport(ctx context.Context, metrics []*models.Metric) e
 		return fmt.Errorf("serialize metrics: %w", err)
 	}
 
-	// Send via UDP
+	return e.send(ctx, packets, len(metrics))
+}
+
+// SendPackets sends already serialized datagrams through the exporter's pool
+// and circuit breaker. count is the number of metrics the packets carry, for
+// the exported statistic.
+func (e *BaseExporter) SendPackets(ctx context.Context, packets [][]byte, count int) error {
+	if len(packets) == 0 {
+		return nil
+	}
+	return e.breaker.Call(ctx, func() error {
+		return e.send(ctx, packets, count)
+	})
+}
+
+func (e *BaseExporter) send(ctx context.Context, packets [][]byte, count int) error {
 	if err := e.pool.SendBatch(ctx, packets); err != nil {
 		e.errors.Add(1)
 		return fmt.Errorf("send batch: %w", err)
 	}
 
-	e.exported.Add(uint64(len(metrics)))
+	if count > 0 {
+		e.exported.Add(uint64(count))
+	}
 	return nil
 }
 

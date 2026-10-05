@@ -2,6 +2,9 @@ package models
 
 import (
 	"fmt"
+	"net"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -78,8 +81,32 @@ type DatadogConfig struct {
 	Enabled   bool
 	AgentHost string
 	AgentPort int
-	Tags      []string
+	// Endpoint, when set, overrides AgentHost and AgentPort. It accepts
+	// "host:port" and "udp://host:port" (UDP), or "unixgram:///abs/path"
+	// (Unix datagram socket, unavailable on Windows).
+	Endpoint string
+	// BufferSize is the maximum size in bytes of one datagram. Whole
+	// serialized lines are batched into datagrams of at most this size; a
+	// single line larger than BufferSize is dropped and reported as an export
+	// error. Zero selects DefaultDatadogUDPBufferSize for UDP and
+	// DefaultDatadogUnixgramBufferSize for unixgram. The maximum is
+	// MaxDatadogBufferSize.
+	BufferSize int
+	Tags       []string
 }
+
+const (
+	// DefaultDatadogUDPBufferSize is the default datagram size for UDP, which
+	// fits a standard 1500-byte Ethernet MTU.
+	DefaultDatadogUDPBufferSize = 1432
+	// DefaultDatadogUnixgramBufferSize is the default datagram size for unixgram.
+	DefaultDatadogUnixgramBufferSize = 8192
+	// MaxDatadogBufferSize is the largest datagram a UDP payload can carry.
+	MaxDatadogBufferSize = 65507
+
+	endpointSchemeUDP      = "udp://"
+	endpointSchemeUnixgram = "unixgram://"
+)
 
 // RuntimeMetricsConfig configures runtime metrics collection
 type RuntimeMetricsConfig struct {
@@ -104,9 +131,61 @@ func (c *CloudWatchConfig) Address() string {
 	return fmt.Sprintf("%s:%d", c.AgentHost, c.AgentPort)
 }
 
-// Address returns the full UDP address for Datadog
+// Address returns the address the Datadog exporter dials: the host:port or
+// socket path of Endpoint when it is set, otherwise AgentHost:AgentPort. An
+// Endpoint that does not parse is returned as is; Validate reports it.
 func (c *DatadogConfig) Address() string {
+	if c.Endpoint != "" {
+		if _, address, err := c.ResolveEndpoint(); err == nil {
+			return address
+		}
+		return c.Endpoint
+	}
 	return fmt.Sprintf("%s:%d", c.AgentHost, c.AgentPort)
+}
+
+// ResolveEndpoint returns the network ("udp" or "unixgram") and address to
+// dial. Endpoint takes precedence over AgentHost and AgentPort.
+func (c *DatadogConfig) ResolveEndpoint() (network, address string, err error) {
+	switch {
+	case c.Endpoint == "":
+		return "udp", fmt.Sprintf("%s:%d", c.AgentHost, c.AgentPort), nil
+	case strings.HasPrefix(c.Endpoint, endpointSchemeUnixgram):
+		path := strings.TrimPrefix(c.Endpoint, endpointSchemeUnixgram)
+		if len(path) < 2 || path[0] != '/' {
+			return "", "", fmt.Errorf("datadog: unixgram endpoint %q needs an absolute path (unixgram:///abs/path)", c.Endpoint)
+		}
+		return "unixgram", path, nil
+	case strings.HasPrefix(c.Endpoint, endpointSchemeUDP):
+		address = strings.TrimPrefix(c.Endpoint, endpointSchemeUDP)
+	case strings.Contains(c.Endpoint, "://"):
+		return "", "", fmt.Errorf("datadog: unsupported endpoint scheme in %q (want host:port, udp://host:port or unixgram:///abs/path)", c.Endpoint)
+	default:
+		address = c.Endpoint
+	}
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return "", "", fmt.Errorf("datadog: invalid endpoint %q: %w", c.Endpoint, err)
+	}
+	if host == "" {
+		return "", "", fmt.Errorf("datadog: endpoint %q has no host", c.Endpoint)
+	}
+	if n, err := strconv.Atoi(port); err != nil || n <= 0 || n > 65535 {
+		return "", "", fmt.Errorf("datadog: endpoint %q has an invalid port", c.Endpoint)
+	}
+	return "udp", address, nil
+}
+
+// PacketSize returns the effective maximum datagram size: BufferSize, or the
+// default for the resolved network when BufferSize is zero.
+func (c *DatadogConfig) PacketSize() int {
+	if c.BufferSize > 0 {
+		return c.BufferSize
+	}
+	if network, _, err := c.ResolveEndpoint(); err == nil && network == "unixgram" {
+		return DefaultDatadogUnixgramBufferSize
+	}
+	return DefaultDatadogUDPBufferSize
 }
 
 // Validate checks if the CloudWatch configuration is valid
@@ -133,11 +212,20 @@ func (c *PrometheusConfig) Validate() error {
 
 // Validate checks if the Datadog configuration is valid
 func (c *DatadogConfig) Validate() error {
-	if c.AgentHost == "" {
-		return fmt.Errorf("datadog: agent host is required")
+	if c.Endpoint != "" {
+		if _, _, err := c.ResolveEndpoint(); err != nil {
+			return err
+		}
+	} else {
+		if c.AgentHost == "" {
+			return fmt.Errorf("datadog: agent host is required")
+		}
+		if c.AgentPort <= 0 || c.AgentPort > 65535 {
+			return fmt.Errorf("datadog: invalid agent port")
+		}
 	}
-	if c.AgentPort <= 0 || c.AgentPort > 65535 {
-		return fmt.Errorf("datadog: invalid agent port")
+	if c.BufferSize < 0 || c.BufferSize > MaxDatadogBufferSize {
+		return fmt.Errorf("datadog: buffer size %d out of range (0 for default, max %d)", c.BufferSize, MaxDatadogBufferSize)
 	}
 	return nil
 }
