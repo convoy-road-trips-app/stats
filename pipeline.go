@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/convoy-road-trips-app/stats/models"
 	"github.com/convoy-road-trips-app/stats/transport"
 )
 
@@ -58,12 +59,9 @@ type Pipeline struct {
 	cardinality cardinalityLimiter
 }
 
-// Exporter is the interface for backend exporters
-type Exporter interface {
-	Name() string
-	Export(ctx context.Context, metrics []*Metric) error
-	Shutdown(ctx context.Context) error
-}
+// Exporter is the interface for backend exporters. It lives in models so that
+// exporters can implement it without importing this package.
+type Exporter = models.Exporter
 
 // Start starts the worker pool
 func (p *Pipeline) Start() error {
@@ -261,24 +259,12 @@ func (p *Pipeline) idleSince(d time.Duration) bool {
 	return time.Since(time.Unix(0, p.lastExport.Load())) >= d
 }
 
-// exportTimeouter is implemented by exporters that bound their own exports
-// and must not inherit the pipeline's UDP write deadline.
-type exportTimeouter interface {
-	ExportTimeout() time.Duration
-}
-
-// idleExporter is implemented by exporters with cumulative state that must be
-// exported on every flush interval, even when nothing was observed in it.
-type idleExporter interface {
-	ExportIdle(ctx context.Context) error
-}
-
 // exportIdleInBackground asks every idleExporter to repeat its state. The
-// exporters bound themselves (they implement exportTimeouter).
+// exporters bound themselves (they implement models.ExportTimeouter).
 func (p *Pipeline) exportIdleInBackground() error {
 	var errs []error
 	for i, exporter := range p.exporters {
-		idle, ok := exporter.(idleExporter)
+		idle, ok := exporter.(models.IdleExporter)
 		if !ok {
 			continue
 		}
@@ -292,7 +278,7 @@ func (p *Pipeline) exportIdleInBackground() error {
 }
 
 // exportIdle calls ExportIdle, converting a panic into an error like processBatchWith does.
-func (p *Pipeline) exportIdle(idle idleExporter, name string) (err error) {
+func (p *Pipeline) exportIdle(idle models.IdleExporter, name string) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("exporter %s panicked: %v", name, r)
@@ -338,7 +324,7 @@ func (p *Pipeline) processBatchWith(ctx context.Context, batch []*Metric, defaul
 			}()
 
 			exportCtx := ctx
-			if _, bounded := exp.(exportTimeouter); !bounded && defaultTimeout > 0 {
+			if _, bounded := exp.(models.ExportTimeouter); !bounded && defaultTimeout > 0 {
 				var cancel context.CancelFunc
 				exportCtx, cancel = context.WithTimeout(ctx, defaultTimeout)
 				defer cancel()
