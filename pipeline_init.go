@@ -46,9 +46,10 @@ func NewPipeline(cfg *Config) (*Pipeline, error) {
 	}, nil
 }
 
-// newExporters creates the exporter of every enabled backend.
+// newExporters creates the exporter of every enabled backend, followed by the
+// custom exporters registered with WithExporter.
 func newExporters(cfg *Config) ([]Exporter, error) {
-	exporters := make([]Exporter, 0, 3)
+	exporters := make([]Exporter, 0, 4+len(cfg.Exporters))
 	if cfg.Datadog != nil && cfg.Datadog.Enabled {
 		ddExporter, err := datadog.NewExporter(cfg.Datadog)
 		if err != nil {
@@ -77,6 +78,7 @@ func newExporters(cfg *Config) ([]Exporter, error) {
 		}
 		exporters = append(exporters, otlpExporter)
 	}
+	exporters = append(exporters, cfg.Exporters...)
 	return exporters, nil
 }
 

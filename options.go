@@ -168,6 +168,17 @@ func WithDatadog(cfg *DatadogConfig) Option {
 	}
 }
 
+// WithExporter registers a custom exporter. It runs after the built-in
+// exporters, in parallel with them, and gets its own entry in
+// PipelineStats.ExporterErrors under e.Name(). NewClient fails with
+// ErrInvalidConfig if e is nil or its name is already used by another exporter.
+// The client shuts the exporter down on Close.
+func WithExporter(e Exporter) Option {
+	return func(c *Config) {
+		c.Exporters = append(slices.Clone(c.Exporters), e)
+	}
+}
+
 // WithOTLP enables and configures OTLP exporter. cfg is copied, so one option
 // can configure several clients.
 func WithOTLP(cfg *OTLPConfig) Option {

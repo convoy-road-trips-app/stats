@@ -41,6 +41,9 @@ type Config struct {
 	Datadog        *DatadogConfig
 	OTLP           *OTLPConfig
 	RuntimeMetrics *RuntimeMetricsConfig
+
+	// Exporters are custom exporters registered after the built-in ones.
+	Exporters []Exporter
 }
 
 // CloudWatchConfig configures the CloudWatch exporter
