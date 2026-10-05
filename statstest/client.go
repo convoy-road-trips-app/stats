@@ -19,13 +19,18 @@ const flushTimeout = 5 * time.Second
 // Metrics reach the Exporter asynchronously. Call Flush before asserting, so
 // the result does not depend on timing.
 //
+// Version reporting is off by default here: NewClient prepends
+// stats.WithVersionReporting(false), so the capture holds no stats_version or
+// go_version gauges. Pass stats.WithVersionReporting(true) in opts to get them.
+//
 // The capture may contain metrics the client records itself, not only the ones
 // the test recorded. Assert on metrics by name rather than on the full list.
 func NewClient(t testing.TB, opts ...stats.Option) (*stats.Client, *Exporter) {
 	t.Helper()
 
 	exp := NewExporter()
-	all := make([]stats.Option, 0, len(opts)+1)
+	all := make([]stats.Option, 0, len(opts)+2)
+	all = append(all, stats.WithVersionReporting(false))
 	all = append(all, opts...)
 	all = append(all, stats.WithExporter(exp))
 

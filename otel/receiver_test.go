@@ -125,6 +125,7 @@ func (r *metricsReceiver) provider(t *testing.T, opts ...MeterProviderOption) *M
 	t.Helper()
 	all := append([]MeterProviderOption{WithStatsOptions(
 		stats.WithServiceName("observable-e2e"),
+		stats.WithVersionReporting(false),
 		stats.WithWorkers(1),
 		stats.WithFlushInterval(time.Hour),
 		stats.WithUDPTimeout(10*time.Second),

@@ -184,7 +184,7 @@ func TestWithResource_is_exported_to_OTLP_receiver(t *testing.T) {
 	defer server.Close()
 	provider, err := NewMeterProvider(
 		WithResource(resource.NewWithAttributes("", attribute.String("team", "payments"))),
-		WithStatsOptions(stats.WithOTLP(&stats.OTLPConfig{
+		WithStatsOptions(stats.WithVersionReporting(false), stats.WithOTLP(&stats.OTLPConfig{
 			Endpoint: strings.TrimPrefix(server.URL, "http://"),
 			Insecure: true,
 			Protocol: stats.OTLPProtocolHTTP,

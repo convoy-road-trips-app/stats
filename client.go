@@ -27,6 +27,11 @@ type clientCore struct {
 	// operation on it is a no-op; it is immutable, so it is read without mu.
 	disabled bool
 
+	// versionOnce guards the one-time stats_version/go_version report;
+	// reportVersions is false when version reporting is disabled.
+	versionOnce    sync.Once
+	reportVersions bool
+
 	// Shutdown coordination
 	shutdownOnce sync.Once
 	closed       bool
@@ -79,8 +84,9 @@ func NewClient(opts ...Option) (*Client, error) {
 
 	client := &Client{
 		core: &clientCore{
-			cfg:      cfg,
-			pipeline: pipeline,
+			cfg:            cfg,
+			pipeline:       pipeline,
+			reportVersions: versionReportingEnabled(cfg),
 		},
 		root: true,
 	}
@@ -261,6 +267,9 @@ func (c *Client) record(ctx context.Context, m *Metric, opts []MetricOption) err
 	if err := core.pipeline.Record(ctx, m); err != nil {
 		m.Name = name
 		return err
+	}
+	if c.root {
+		core.reportVersionsOnce()
 	}
 	return nil
 }

@@ -45,7 +45,7 @@ func TestCustomExporterPanicIsRecovered(t *testing.T) {
 		panic("boom")
 	}}
 
-	client, err := NewClient(WithFlushInterval(time.Hour), WithExporter(mock))
+	client, err := NewClient(WithVersionReporting(false), WithFlushInterval(time.Hour), WithExporter(mock))
 	require.NoError(t, err)
 	defer client.Close()
 

@@ -57,6 +57,10 @@ type Config struct {
 
 	// Exporters are custom exporters registered after the built-in ones.
 	Exporters []Exporter
+
+	// VersionReporting is the explicit WithVersionReporting choice; nil means
+	// unset, so STATS_DISABLE_GO_VERSION_REPORTING applies and the default is on.
+	VersionReporting *bool
 }
 
 // CloudWatchConfig configures the CloudWatch exporter

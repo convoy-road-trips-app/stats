@@ -33,6 +33,7 @@ func TestMeterProvider_ForceFlush_delivers_buffered_observations_before_returnin
 	defer server.Close()
 	provider, err := NewMeterProvider(WithStatsOptions(
 		stats.WithServiceName("force-flush"),
+		stats.WithVersionReporting(false),
 		stats.WithFlushInterval(time.Hour),
 		stats.WithOTLP(&stats.OTLPConfig{
 			Endpoint: strings.TrimPrefix(server.URL, "http://"),

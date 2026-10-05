@@ -128,7 +128,7 @@ func TestClient_Shutdown_delivers_10k_accepted_counter_increments_to_OTLP_receiv
 func TestClient_Flush_with_OTLP_retry_recovers_from_transient_unavailability(t *testing.T) {
 	// Given: the first export attempt gets a retryable 503
 	receiver := newOTLPReceiver(t, 1)
-	client, err := NewClient(WithServiceName("retry-e2e"), WithFlushInterval(time.Hour),
+	client, err := NewClient(WithServiceName("retry-e2e"), WithVersionReporting(false), WithFlushInterval(time.Hour),
 		WithOTLPRetry(time.Millisecond, 5*time.Millisecond, time.Second), receiver.option())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Shutdown(context.Background()) })
