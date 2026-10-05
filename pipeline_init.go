@@ -79,6 +79,7 @@ func newExporters(cfg *Config) ([]Exporter, error) {
 		}
 		exporters = append(exporters, otlpExporter)
 	}
+	bindPullHandlers(cfg)
 	exporters = append(exporters, cfg.Exporters...)
 	return exporters, nil
 }
