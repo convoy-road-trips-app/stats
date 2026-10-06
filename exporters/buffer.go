@@ -116,9 +116,15 @@ func (b *Buffer) Flush() error {
 // Name returns the exporter name.
 func (b *Buffer) Name() string { return "buffer" }
 
-// Export is Handle, so a Buffer can be used as a models.Exporter.
+// Export is Handle followed by Flush, so a Buffer used as a models.Exporter
+// has written everything it accepted to Dst when Export returns, which is what
+// a client's Flush relies on. The pipeline already batches what it passes to
+// Export; call Handle directly for size-based batching.
 func (b *Buffer) Export(_ context.Context, metrics []*models.Metric) error {
-	return b.Handle(metrics...)
+	if err := b.Handle(metrics...); err != nil {
+		return err
+	}
+	return b.Flush()
 }
 
 // Shutdown flushes the buffers. It does not close Dst.

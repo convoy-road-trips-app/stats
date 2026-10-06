@@ -121,3 +121,14 @@ func TestBufferConcurrentNoLoss(t *testing.T) {
 		require.Equal(t, "m:1|c", l)
 	}
 }
+
+func TestBufferExportWritesThrough(t *testing.T) {
+	dst := &syncBuffer{}
+	b := &Buffer{Dst: dst, Serializer: NewLineSerializer()}
+
+	require.NoError(t, b.Handle(counter("a", 1)))
+	require.Empty(t, dst.String(), "Handle batches below the target size")
+
+	require.NoError(t, b.Export(context.Background(), []*models.Metric{counter("b", 2)}))
+	require.Equal(t, "a:1|c\nb:2|c\n", dst.String(), "Export writes accepted data, including earlier Handle data")
+}
