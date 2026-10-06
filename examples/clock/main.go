@@ -1,6 +1,8 @@
-// Command clock shows how to time the steps of an operation with Observe, which
-// records a time.Duration as a histogram in seconds (the unit Prometheus and
-// OpenTelemetry use). Compare Timing, which records milliseconds.
+// Command clock shows how to time the steps of an operation with stats.Clock.
+// A clock records each step as one histogram observation in seconds (the unit
+// Prometheus and OpenTelemetry use), with a constant "stamp" attribute naming
+// the step, plus a "total" observation from Stop. It builds on Client.Observe;
+// compare Timing, which records milliseconds.
 package main
 
 import (
@@ -28,23 +30,34 @@ func main() {
 
 	ctx := context.Background()
 
-	// Time each step of a sequence, naming it with a constant "stamp" attribute
-	// so the steps share one histogram series family.
-	begin := time.Now()
-	last := begin
-	step := func(name string, work time.Duration) {
-		time.Sleep(work)
-		now := time.Now()
-		_ = client.Observe(ctx, "job.duration", now.Sub(last), stats.WithAttribute("stamp", name))
-		last = now
+	// A clock measures one sequence of steps and starts when it is created.
+	// Stamp records the time since the previous Stamp (or the start) under the
+	// given step name; Stop records the whole sequence as stamp "total".
+	// Use constant step names: every distinct name is a new series.
+	clock := client.Clock("job.duration", stats.WithAttribute("job", "nightly"))
+	steps := []struct {
+		name string
+		work time.Duration
+	}{
+		{"load", 10 * time.Millisecond},
+		{"transform", 20 * time.Millisecond},
+		{"store", 5 * time.Millisecond},
 	}
-	step("load", 10*time.Millisecond)
-	step("transform", 20*time.Millisecond)
-	step("store", 5*time.Millisecond)
-	_ = client.Observe(ctx, "job.duration", time.Since(begin), stats.WithAttribute("stamp", "total"))
+	for _, step := range steps {
+		time.Sleep(step.work)
+		if err := clock.Stamp(ctx, step.name); err != nil {
+			fmt.Fprintln(os.Stderr, "stamp:", err)
+			os.Exit(1)
+		}
+	}
+	if err := clock.Stop(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, "stop:", err)
+		os.Exit(1)
+	}
 
-	// Observe is on the optional stats.DurationObserver interface, so code that
-	// holds only a stats.Recorder can use it through a type assertion.
+	// For a single duration, Observe is on the optional stats.DurationObserver
+	// interface, so code that holds only a stats.Recorder can use it through a
+	// type assertion.
 	var rec stats.Recorder = client
 	if o, ok := rec.(stats.DurationObserver); ok {
 		_ = o.Observe(ctx, "cleanup.duration", 3*time.Millisecond)
