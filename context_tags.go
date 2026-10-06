@@ -67,15 +67,3 @@ func ContextTags(ctx context.Context) []attribute.KeyValue {
 	defer ct.mu.RUnlock()
 	return slices.Clone(ct.tags)
 }
-
-// prependContextTags inserts the tags carried by ctx before m's existing
-// attributes, so later attributes win on a duplicate key.
-func prependContextTags(ctx context.Context, m *Metric) {
-	ct, ok := ctx.Value(contextTagsKey{}).(*contextTags)
-	if !ok {
-		return
-	}
-	ct.mu.RLock()
-	m.Attributes = slices.Insert(m.Attributes, 0, ct.tags...)
-	ct.mu.RUnlock()
-}

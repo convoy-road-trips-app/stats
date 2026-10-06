@@ -60,6 +60,11 @@ func (n *NoOpClient) Flush(ctx context.Context) error {
 	return nil
 }
 
+// Event does nothing and returns nil.
+func (n *NoOpClient) Event(ctx context.Context, ev DatadogEvent) error { //nolint:gocritic // hugeParam: must match EventSender
+	return nil
+}
+
 func (n *NoOpClient) Shutdown(ctx context.Context) error {
 	return nil
 }

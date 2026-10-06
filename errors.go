@@ -1,6 +1,10 @@
 package stats
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/convoy-road-trips-app/stats/models"
+)
 
 // Sentinel errors for common failure modes
 var (
@@ -43,4 +47,12 @@ var (
 	// value, or a field of it that carries a metric or tag struct tag, has a
 	// kind that cannot be reported; nothing is recorded in that case
 	ErrUnsupportedReportField = errors.New("stats: unsupported report field")
+
+	// ErrDatadogNotConfigured is returned by Client.Event when the client has no
+	// Datadog backend to send the event to
+	ErrDatadogNotConfigured = errors.New("stats: datadog is not configured")
+
+	// ErrEventTooLarge is returned by Client.Event when the serialized event is
+	// larger than the Datadog BufferSize; the event is not sent
+	ErrEventTooLarge = models.ErrEventTooLarge
 )

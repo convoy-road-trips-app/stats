@@ -66,10 +66,8 @@ type admission struct {
 // reserves m's series within the limit (<= 0 means 2000).
 // On success the caller must commit or release the returned admission.
 func (l *cardinalityLimiter) admit(m *Metric, limit int) (admission, error) {
-	for _, kv := range m.Attributes {
-		if !validTagKey(string(kv.Key)) {
-			return admission{}, fmt.Errorf("%w: %q", ErrInvalidTagKey, kv.Key)
-		}
+	if err := admitKeys(m.Attributes); err != nil {
+		return admission{}, err
 	}
 	for i, kv := range m.Attributes {
 		if kv.Value.Type() == attribute.STRING {
@@ -124,6 +122,17 @@ func (l *cardinalityLimiter) admit(m *Metric, limit int) (admission, error) {
 	series.reserved[a.key]++ // concurrent first observations share one slot
 	a.series = series
 	return a, nil
+}
+
+// admitKeys returns ErrInvalidTagKey for the first attribute whose key fails
+// validTagKey. Metrics (through admit) and events share it.
+func admitKeys(attrs []attribute.KeyValue) error {
+	for _, kv := range attrs {
+		if !validTagKey(string(kv.Key)) {
+			return fmt.Errorf("%w: %q", ErrInvalidTagKey, kv.Key)
+		}
+	}
+	return nil
 }
 
 // admitAndEnqueue validates and admits m, then buffers it. A failed recording

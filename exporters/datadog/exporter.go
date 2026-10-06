@@ -91,6 +91,19 @@ func (e *Exporter) Export(ctx context.Context, metrics []*models.Metric) error {
 	return errors.Join(sendErr, dropErr)
 }
 
+// SendEvent serializes ev as a DogStatsD event and sends it as one datagram
+// through the exporter's pool and circuit breaker, exactly as Export does for
+// metrics. It returns models.ErrEventTooLarge, without sending anything, when
+// the serialized event (including global tags) is larger than the configured
+// BufferSize.
+func (e *Exporter) SendEvent(ctx context.Context, ev models.DatadogEvent) error { //nolint:gocritic // hugeParam: the signature takes the event by value, like Client.Event
+	payload := e.serializer.SerializeEvent(&ev)
+	if len(payload) > e.packetSize {
+		return fmt.Errorf("%w: %d bytes, buffer size %d", models.ErrEventTooLarge, len(payload), e.packetSize)
+	}
+	return e.SendPackets(ctx, [][]byte{payload}, 0)
+}
+
 // packetize joins whole lines with newlines into datagrams of at most size
 // bytes. Lines that cannot fit in a datagram on their own are skipped and
 // counted in oversized.

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -31,6 +32,9 @@ type clientCore struct {
 	// reportVersions is false when version reporting is disabled.
 	versionOnce    sync.Once
 	reportVersions bool
+
+	// eventsDropped counts events Client.Event failed to deliver.
+	eventsDropped atomic.Uint64
 
 	// Shutdown coordination
 	shutdownOnce sync.Once
@@ -258,8 +262,7 @@ func (c *Client) record(ctx context.Context, m *Metric, opts []MetricOption) err
 		return err
 	}
 
-	prependContextTags(ctx, m)
-	m.Attributes = slices.Insert(m.Attributes, 0, c.tags...)
+	m.Attributes = c.resolveAttrs(ctx, m.Attributes)
 	for _, opt := range opts {
 		opt(m)
 	}
@@ -272,6 +275,19 @@ func (c *Client) record(ctx context.Context, m *Metric, opts []MetricOption) err
 		core.reportVersionsOnce()
 	}
 	return nil
+}
+
+// resolveAttrs returns existing preceded by the view tags and then the context
+// tags carried by ctx, so on a duplicate key the later attribute wins: view
+// tags, then context tags, then existing. It may reuse existing's backing
+// array; sendEvent passes a copy of the caller's tags.
+func (c *Client) resolveAttrs(ctx context.Context, existing []attribute.KeyValue) []attribute.KeyValue {
+	if ct, ok := ctx.Value(contextTagsKey{}).(*contextTags); ok {
+		ct.mu.RLock()
+		existing = slices.Insert(existing, 0, ct.tags...)
+		ct.mu.RUnlock()
+	}
+	return slices.Insert(existing, 0, c.tags...)
 }
 
 // isClosed reports whether the core has begun shutting down.
@@ -319,7 +335,9 @@ func (c *Client) Stats() ClientStats {
 		ServiceName: core.cfg.ServiceName,
 		Environment: core.cfg.Environment,
 		Closed:      core.closed,
-		Pipeline:    pipelineStats,
+
+		EventsDropped: core.eventsDropped.Load(),
+		Pipeline:      pipelineStats,
 	}
 }
 
@@ -328,7 +346,9 @@ type ClientStats struct {
 	ServiceName string
 	Environment string
 	Closed      bool
-	Pipeline    PipelineStats
+	// EventsDropped counts Datadog events that Client.Event failed to deliver.
+	EventsDropped uint64
+	Pipeline      PipelineStats
 }
 
 // Helper functions for creating metrics

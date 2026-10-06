@@ -32,10 +32,25 @@ type Flusher interface {
 	Flush(ctx context.Context) error
 }
 
+// EventSender is implemented by recorders that can send Datadog events. It is
+// separate from Recorder so that existing Recorder implementations keep
+// compiling. *Client and *NoOpClient implement it; check for it with a type
+// assertion:
+//
+//	if s, ok := recorder.(stats.EventSender); ok {
+//		err = s.Event(ctx, stats.DatadogEvent{Title: "deploy", Text: "v2"})
+//	}
+type EventSender interface {
+	Event(ctx context.Context, ev DatadogEvent) error
+}
+
 // Ensure implementations satisfy the interface
 var (
 	_ Recorder = (*Client)(nil)
 	_ Recorder = (*NoOpClient)(nil)
 	_ Flusher  = (*Client)(nil)
 	_ Flusher  = (*NoOpClient)(nil)
+
+	_ EventSender = (*Client)(nil)
+	_ EventSender = (*NoOpClient)(nil)
 )

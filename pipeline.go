@@ -392,6 +392,16 @@ func (p *Pipeline) getExporterErrors() map[string]uint64 {
 	return errors
 }
 
+// exporter returns the exporter registered under name, or nil.
+func (p *Pipeline) exporter(name string) Exporter {
+	for _, exp := range p.exporters {
+		if exp.Name() == name {
+			return exp
+		}
+	}
+	return nil
+}
+
 // RecordExporterError counts one failure under name in
 // PipelineStats.ExporterErrors and in Errors. A name that matches no exporter
 // gets its own entry, so callers outside the pipeline (such as the runtime

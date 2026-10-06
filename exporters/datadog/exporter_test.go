@@ -3,6 +3,7 @@ package datadog
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -319,5 +320,41 @@ func TestNewExporterCopiesFilters(t *testing.T) {
 	}
 	if got := readPackets(t, ln); len(got) != 1 || got[0] != "req:1|c|#http_req_path:/a/1" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestSendEventDelivers(t *testing.T) {
+	ln := listenUDP(t)
+	exp, err := NewExporter(&models.DatadogConfig{Enabled: true, AgentHost: "127.0.0.1", AgentPort: ln.LocalAddr().(*net.UDPAddr).Port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exp.Shutdown(context.Background())
+
+	if err := exp.SendEvent(context.Background(), models.DatadogEvent{Title: "t", Text: "a\nb"}); err != nil {
+		t.Fatal(err)
+	}
+	got := readPackets(t, ln)
+	if len(got) != 1 || got[0] != `_e{1,4}:t|a\nb` {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestSendEventTooLarge(t *testing.T) {
+	ln := listenUDP(t)
+	exp, err := NewExporter(&models.DatadogConfig{
+		Enabled: true, AgentHost: "127.0.0.1", AgentPort: ln.LocalAddr().(*net.UDPAddr).Port, BufferSize: 32,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exp.Shutdown(context.Background())
+
+	err = exp.SendEvent(context.Background(), models.DatadogEvent{Title: "t", Text: strings.Repeat("x", 64)})
+	if !errors.Is(err, models.ErrEventTooLarge) {
+		t.Fatalf("err = %v, want ErrEventTooLarge", err)
+	}
+	if got := readPackets(t, ln); len(got) != 0 {
+		t.Fatalf("oversized event was sent: %q", got)
 	}
 }

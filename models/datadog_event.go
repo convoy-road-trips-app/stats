@@ -1,10 +1,16 @@
 package models
 
 import (
+	"errors"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 )
+
+// ErrEventTooLarge is returned when a serialized Datadog event does not fit in
+// one datagram of the configured buffer size. It is re-exported as
+// stats.ErrEventTooLarge.
+var ErrEventTooLarge = errors.New("stats: datadog event exceeds the buffer size")
 
 // EventPriority is the priority of a Datadog event.
 type EventPriority string
