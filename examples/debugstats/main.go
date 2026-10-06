@@ -16,6 +16,13 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	// Filtered is a second exporter that only keeps lines matching Grep. It
 	// writes to a buffer here; any io.Writer works.
 	var filtered bytes.Buffer
@@ -36,8 +43,7 @@ func main() {
 		}),
 	)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "create client:", err)
-		os.Exit(1)
+		return fmt.Errorf("create client: %w", err)
 	}
 	defer func() { _ = client.Close() }()
 
@@ -51,12 +57,12 @@ func main() {
 	flushCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	if err := client.Flush(flushCtx); err != nil {
-		fmt.Fprintln(os.Stderr, "flush:", err)
-		os.Exit(1)
+		return fmt.Errorf("flush: %w", err)
 	}
 
 	fmt.Println("--- only lines matching ^error\\. ---")
 	fmt.Print(filtered.String())
+	return nil
 }
 
 // named gives a debugstats.Exporter another name: the client requires every

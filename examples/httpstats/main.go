@@ -48,7 +48,10 @@ func run() error {
 	mux.HandleFunc("GET /users/{id}", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "hello")
 	})
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
@@ -63,8 +66,6 @@ func run() error {
 	// Client side: wrap the transport.
 	hc := &http.Client{Transport: httpstats.NewTransportWith(client, nil), Timeout: 2 * time.Second}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	base := "http://" + ln.Addr().String()
 	for _, path := range []string{"/users/42", "/users/43", "/missing"} {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, http.NoBody)

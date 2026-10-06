@@ -44,26 +44,15 @@ func run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	for range 3 {
-		if err := client.Counter(ctx, "http.requests", 1, stats.WithAttribute("method", "GET")); err != nil {
-			return err
-		}
-	}
-	if err := client.Gauge(ctx, "queue.depth", 12); err != nil {
-		return err
-	}
-	if err := client.Histogram(ctx, "request.duration", 0.042); err != nil {
-		return err
-	}
-	// Metrics reach the handler asynchronously; Flush makes them visible.
-	if err := client.Flush(ctx); err != nil {
+	if err := record(ctx, client); err != nil {
 		return err
 	}
 
 	// Serve /metrics on a free port of the loopback interface.
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", h)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
@@ -78,16 +67,7 @@ func run() error {
 	url := "http://" + ln.Addr().String() + "/metrics"
 	fmt.Println("scraping", url)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
-	if err != nil {
-		return err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := scrape(ctx, url)
 	if err != nil {
 		return err
 	}
@@ -104,4 +84,35 @@ func run() error {
 		return errors.New("no _total line in scrape output")
 	}
 	return nil
+}
+
+// record emits a few metrics and flushes them: they reach the handler
+// asynchronously, so Flush is what makes them visible to a scrape.
+func record(ctx context.Context, client *stats.Client) error {
+	for range 3 {
+		if err := client.Counter(ctx, "http.requests", 1, stats.WithAttribute("method", "GET")); err != nil {
+			return err
+		}
+	}
+	if err := client.Gauge(ctx, "queue.depth", 12); err != nil {
+		return err
+	}
+	if err := client.Histogram(ctx, "request.duration", 0.042); err != nil {
+		return err
+	}
+	return client.Flush(ctx)
+}
+
+// scrape fetches url once and returns the response body.
+func scrape(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return io.ReadAll(resp.Body)
 }

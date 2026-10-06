@@ -41,13 +41,16 @@ func run() error {
 	}
 	defer func() { _ = client.Close() }()
 
-	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var lc net.ListenConfig
+	raw, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
 	zones := netstats.WithZones("us-east-1a", "us-east-1a")
 	ln := netstats.NewListenerWith(client, raw, zones)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	// Echo server: every accepted connection is already instrumented.
 	served := make(chan struct{})
@@ -57,12 +60,13 @@ func run() error {
 		if err != nil {
 			return
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		_, _ = io.Copy(c, c)
 	}()
 
 	// Client side: wrap the dialed connection.
-	nc, err := net.DialTimeout("tcp", raw.Addr().String(), 2*time.Second)
+	dialer := net.Dialer{Timeout: 2 * time.Second}
+	nc, err := dialer.DialContext(ctx, "tcp", raw.Addr().String())
 	if err != nil {
 		return err
 	}
@@ -83,7 +87,5 @@ func run() error {
 	}
 	<-served
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	return client.Flush(ctx)
 }

@@ -16,6 +16,13 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	client, err := stats.NewClient(
 		stats.WithServiceName("clock-example"),
 		stats.WithVersionReporting(false),
@@ -23,8 +30,7 @@ func main() {
 		stats.WithExporter(&debugstats.Exporter{Dst: os.Stdout}),
 	)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "create client:", err)
-		os.Exit(1)
+		return fmt.Errorf("create client: %w", err)
 	}
 	defer func() { _ = client.Close() }()
 
@@ -46,13 +52,11 @@ func main() {
 	for _, step := range steps {
 		time.Sleep(step.work)
 		if err := clock.Stamp(ctx, step.name); err != nil {
-			fmt.Fprintln(os.Stderr, "stamp:", err)
-			os.Exit(1)
+			return fmt.Errorf("stamp: %w", err)
 		}
 	}
 	if err := clock.Stop(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, "stop:", err)
-		os.Exit(1)
+		return fmt.Errorf("stop: %w", err)
 	}
 
 	// For a single duration, Observe is on the optional stats.DurationObserver
@@ -66,7 +70,7 @@ func main() {
 	flushCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	if err := client.Flush(flushCtx); err != nil {
-		fmt.Fprintln(os.Stderr, "flush:", err)
-		os.Exit(1)
+		return fmt.Errorf("flush: %w", err)
 	}
+	return nil
 }

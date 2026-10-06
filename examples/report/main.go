@@ -30,6 +30,13 @@ type RequestStats struct {
 }
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	client, err := stats.NewClient(
 		stats.WithServiceName("report-example"),
 		stats.WithVersionReporting(false),
@@ -37,8 +44,7 @@ func main() {
 		stats.WithExporter(&debugstats.Exporter{Dst: os.Stdout}),
 	)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "create client:", err)
-		os.Exit(1)
+		return fmt.Errorf("create client: %w", err)
 	}
 	defer func() { _ = client.Close() }()
 
@@ -50,21 +56,19 @@ func main() {
 
 	// One struct...
 	if err := stats.Report(ctx, client, &m); err != nil {
-		fmt.Fprintln(os.Stderr, "report:", err)
-		os.Exit(1)
+		return fmt.Errorf("report: %w", err)
 	}
 
 	// ...or a slice of them, with extra options applied to every metric.
 	batch := []RequestStats{{Route: "/health", Count: 1}, {Route: "/orders", Count: 4, Failed: true}}
 	if err := stats.Report(ctx, client, batch, stats.WithAttribute("source", "batch")); err != nil {
-		fmt.Fprintln(os.Stderr, "report batch:", err)
-		os.Exit(1)
+		return fmt.Errorf("report batch: %w", err)
 	}
 
 	flushCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	if err := client.Flush(flushCtx); err != nil {
-		fmt.Fprintln(os.Stderr, "flush:", err)
-		os.Exit(1)
+		return fmt.Errorf("flush: %w", err)
 	}
+	return nil
 }
