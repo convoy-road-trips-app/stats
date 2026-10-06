@@ -134,9 +134,7 @@ func New(cfg Config, record RecordFunc) *Collector {
 
 	var proc *processState
 	if cfg.ProcessMetrics {
-		if src := newProcessSource(); src != nil {
-			proc = newProcessState(src)
-		}
+		proc = newPlatformProcessState()
 	}
 
 	return &Collector{

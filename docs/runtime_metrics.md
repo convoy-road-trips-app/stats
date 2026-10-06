@@ -104,9 +104,9 @@ The `gc.pause.seconds.*` gauges are computed from the difference between the cur
 | `runtime.go.cpu.idle.seconds` | `/cpu/classes/idle:cpu-seconds` | Idle CPU time |
 | `runtime.go.cpu.scavenge.seconds` | `/cpu/classes/scavenge/total:cpu-seconds` | Scavenger CPU time |
 
-### Process Metrics (Linux, opt-in)
+### Process Metrics (Linux and Darwin, opt-in)
 
-Enabled with `stats.WithRuntimeProcessMetrics()` (implies `WithRuntimeMetrics()`). Collected on Linux only; other platforms emit nothing. All are gauges under the runtime prefix (cumulative values are absolute, see below).
+The table below describes Linux; see [Darwin](#darwin) for macOS. Enabled with `stats.WithRuntimeProcessMetrics()` (implies `WithRuntimeMetrics()`). Collected on Linux and Darwin; other platforms (including Windows) emit nothing. All are gauges under the runtime prefix (cumulative values are absolute, see below).
 
 | Metric Name | Attributes | Source | Description |
 |---|---|---|---|
@@ -120,6 +120,20 @@ Enabled with `stats.WithRuntimeProcessMetrics()` (implies `WithRuntimeMetrics()`
 | `runtime.go.files.open.max` | | `/proc/self/limits` | Soft "Max open files" limit; not emitted when unlimited |
 | `runtime.go.threads.count` | | `/proc/self/stat` num_threads | OS threads |
 | `runtime.go.threads.switch.count` | `type=voluntary\|involuntary` | `/proc/self/status` | Cumulative context switches |
+
+#### Darwin
+
+On Darwin the metrics come from `getrusage(RUSAGE_SELF)` through the standard library (no cgo). Only what rusage provides is emitted, with the same names and attributes as Linux:
+
+| Metric Name | Attributes | rusage field | Notes |
+|---|---|---|---|
+| `runtime.go.cpu.usage.seconds` | `type=user\|system` | `ru_utime`, `ru_stime` | |
+| `runtime.go.cpu.usage.percent` | | derived | Same formula as Linux; not emitted on the first sample |
+| `runtime.go.memory.usage.bytes` | `type=resident` | `ru_maxrss` | **Peak** resident size, not current. Darwin reports it in **bytes**; Linux `VmRSS` is read in kilobytes and converted to bytes, so both platforms emit bytes |
+| `runtime.go.memory.pagefault.count` | `type=major\|minor` | `ru_majflt`, `ru_minflt` | Cumulative |
+| `runtime.go.threads.switch.count` | `type=voluntary\|involuntary` | `ru_nvcsw`, `ru_nivcsw` | Cumulative |
+
+Not emitted on Darwin: `memory.usage.bytes` for `shared`, `text` and `data`, `memory.available.bytes`, `memory.total.bytes`, `files.open.count`, `files.open.max` and `threads.count`. A failing `getrusage` call is skipped and reported once as `OnError("process", err)`.
 
 A source that cannot be read is skipped for that collection and reported through `OnError("process", err)` at most once per source (surfacing as `ExporterErrors["runtimemetrics.process"]`).
 

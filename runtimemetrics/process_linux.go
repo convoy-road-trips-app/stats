@@ -4,6 +4,12 @@ package runtimemetrics
 
 import "os"
 
+// newPlatformProcessState returns the process metrics state reading the real
+// /proc and /sys files.
+func newPlatformProcessState() *processState {
+	return newProcessState(newProcessSource())
+}
+
 // newProcessSource reads the real /proc and /sys files.
 func newProcessSource() *processSource {
 	return &processSource{

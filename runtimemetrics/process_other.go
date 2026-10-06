@@ -1,7 +1,7 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package runtimemetrics
 
-// newProcessSource returns nil: process metrics are only collected on Linux,
-// so the collector emits nothing here.
-func newProcessSource() *processSource { return nil }
+// newPlatformProcessState returns nil: process metrics are only collected on
+// Linux and Darwin, so the collector emits nothing on other platforms.
+func newPlatformProcessState() *processState { return nil }

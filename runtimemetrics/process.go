@@ -36,8 +36,12 @@ type processSource struct {
 
 // processState holds the state process metrics keep between collections.
 type processState struct {
+	// src is the procfs source read by collectProcfs. It is nil for platform
+	// implementations that set collect themselves (Darwin).
 	src *processSource
-	now func() time.Time
+	// collect emits one round of process metrics. The caller holds Collector.mu.
+	collect func(c *Collector)
+	now     func() time.Time
 
 	// prevCPU is the previous total CPU time in seconds, taken at prevWall.
 	// havePrev is false until the first successful sample.
@@ -49,8 +53,14 @@ type processState struct {
 	reported map[string]bool
 }
 
+// newProcessState returns the state for the procfs (Linux) collection backed by src.
 func newProcessState(src *processSource) *processState {
-	return &processState{src: src, now: time.Now, reported: make(map[string]bool)}
+	return &processState{
+		src:      src,
+		collect:  (*Collector).collectProcfs,
+		now:      time.Now,
+		reported: make(map[string]bool),
+	}
 }
 
 func typeAttr(v string) attribute.KeyValue { return attribute.String("type", v) }
@@ -73,6 +83,11 @@ func (c *Collector) collectProcess() {
 	if !c.cfg.ProcessMetrics || c.proc == nil {
 		return
 	}
+	c.proc.collect(c)
+}
+
+// collectProcfs emits the process metrics read from /proc and /sys.
+func (c *Collector) collectProcfs() {
 	c.collectProcStat()
 	c.collectProcStatus()
 	c.collectLimits()
@@ -105,8 +120,15 @@ func (c *Collector) collectProcStat() {
 	c.gauge("memory.pagefault.count", float64(st.minflt), typeAttr("minor"))
 	c.gauge("threads.count", float64(st.numThreads))
 
+	c.emitCPUPercent(user + system)
+}
+
+// emitCPUPercent emits cpu.usage.percent from the total CPU seconds consumed
+// so far: delta CPU / delta wall / GOMAXPROCS * 100. The first sample only
+// records the baseline and emits nothing; a decreasing total is skipped.
+func (c *Collector) emitCPUPercent(total float64) {
+	p := c.proc
 	now := p.now()
-	total := user + system
 	if p.havePrev {
 		wall := now.Sub(p.prevWall).Seconds()
 		if wall > 0 && total >= p.prevCPU {
