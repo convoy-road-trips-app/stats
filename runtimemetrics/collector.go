@@ -83,6 +83,9 @@ type Collector struct {
 	mu     sync.Mutex
 	pauses pauseTracker
 
+	// physicalCPUs is the physical core count read once at New; 0 if unknown.
+	physicalCPUs int
+
 	// proc is the process metrics state, nil unless Config.ProcessMetrics is
 	// set and the platform supports it.
 	proc *processState
@@ -148,15 +151,16 @@ func New(cfg Config, record RecordFunc) *Collector {
 	}
 
 	return &Collector{
-		proc:      proc,
-		delay:     delay,
-		cfg:       cfg,
-		record:    record,
-		samples:   samples,
-		names:     names,
-		sampleIdx: sampleIdx,
-		derived:   derived,
-		pauseIdx:  sampleIdx[gcPausesName],
+		proc:         proc,
+		delay:        delay,
+		physicalCPUs: physicalCPUCount(),
+		cfg:          cfg,
+		record:       record,
+		samples:      samples,
+		names:        names,
+		sampleIdx:    sampleIdx,
+		derived:      derived,
+		pauseIdx:     sampleIdx[gcPausesName],
 	}
 }
 
@@ -264,4 +268,8 @@ func (c *Collector) collectOnce() {
 
 	gomaxprocs := float64(runtime.GOMAXPROCS(0))
 	c.record(c.prefix()+"gomaxprocs", models.MetricTypeGauge, gomaxprocs)
+	c.record(c.prefix()+"cpu.num", models.MetricTypeGauge, float64(runtime.NumCPU()))
+	if c.physicalCPUs > 0 {
+		c.record(c.prefix()+"cpu.physical.num", models.MetricTypeGauge, float64(c.physicalCPUs))
+	}
 }
