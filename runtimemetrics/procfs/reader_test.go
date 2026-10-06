@@ -2,6 +2,7 @@ package procfs
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -108,5 +109,35 @@ func TestReadMemoryLimit(t *testing.T) {
 		got, err := r.ReadMemoryLimit(tc.pid)
 		require.NoError(t, err, name)
 		assert.Equal(t, tc.want, got, name)
+	}
+}
+
+func TestReadCPUConfigCombinedControllerMount(t *testing.T) {
+	for name, mount := range map[string]string{
+		"cpu,cpuacct": "cpu,cpuacct",
+		"cpuacct,cpu": "cpuacct,cpu",
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			write := func(rel, content string) {
+				p := filepath.Join(root, rel)
+				require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+				require.NoError(t, os.WriteFile(p, []byte(content), 0o600))
+			}
+			write("proc/200/cgroup", "4:"+mount+":/app\n")
+			// Only the combined mount exists; there is no <root>/cpu directory.
+			write("sys/fs/cgroup/"+mount+"/app/cpu.cfs_quota_us", "50000\n")
+			write("sys/fs/cgroup/"+mount+"/app/cpu.cfs_period_us", "100000\n")
+			write("sys/fs/cgroup/"+mount+"/app/cpu.shares", "512\n")
+
+			r := &Reader{
+				ProcRoot:   filepath.Join(root, "proc"),
+				CgroupRoot: filepath.Join(root, "sys", "fs", "cgroup"),
+				selfPID:    1,
+			}
+			got, err := r.ReadCPUConfig(200)
+			require.NoError(t, err)
+			assert.Equal(t, CPUConfig{Quota: 50 * time.Millisecond, Period: 100 * time.Millisecond, Shares: 512}, got)
+		})
 	}
 }

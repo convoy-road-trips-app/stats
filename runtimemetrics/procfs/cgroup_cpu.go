@@ -80,7 +80,7 @@ func (r *Reader) ReadCPUConfig(pid int) (CPUConfig, error) {
 		}
 	}
 	if g, ok := groups.Lookup("cpu"); ok {
-		if dir, ok := r.cgroupDir(pid, g.Path, "cpu"); ok {
+		if dir, ok := r.cgroupDir(pid, g.Path, groups.v1MountNames(g, "cpu", "cpuacct")...); ok {
 			return readCPUv1(dir)
 		}
 	}
@@ -90,17 +90,54 @@ func (r *Reader) ReadCPUConfig(pid int) (CPUConfig, error) {
 // ReadCPUConfig reads the cgroup CPU configuration of pid with the Default reader.
 func ReadCPUConfig(pid int) (CPUConfig, error) { return Default.ReadCPUConfig(pid) }
 
-// cgroupDir resolves the directory of a cgroup. controller is the v1
-// sub-directory ("cpu", "memory") or empty for v2.
-func (r *Reader) cgroupDir(pid int, cgPath, controller string) (string, bool) {
-	base := filepath.Join(r.cgroupRoot(), controller)
-	dir := filepath.Join(base, filepath.Clean("/"+cgPath))
-	if st, err := os.Stat(dir); err == nil && st.IsDir() {
-		return dir, true
+// v1MountNames returns the candidate v1 mount directory names for the
+// controller g belongs to, most specific first: the joined controller list of
+// g's /proc/<pid>/cgroup line (for example "cpu,cpuacct"), then g's own name,
+// then the usual combined spellings of the given controllers.
+func (cs CGroups) v1MountNames(g CGroup, combined ...string) []string {
+	var joined []string
+	for _, c := range cs {
+		if c.ID == g.ID && c.Name != "" {
+			joined = append(joined, c.Name)
+		}
+	}
+	names := []string{strings.Join(joined, ","), g.Name, strings.Join(combined, ",")}
+	if len(combined) == 2 {
+		names = append(names, combined[1]+","+combined[0])
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, n := range names {
+		if n != "" && !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// cgroupDir resolves the directory of a cgroup. controllers are the candidate
+// v1 mount sub-directories ("cpu", "cpu,cpuacct", "memory"), tried in order,
+// or none for v2.
+func (r *Reader) cgroupDir(pid int, cgPath string, controllers ...string) (string, bool) {
+	if len(controllers) == 0 {
+		controllers = []string{""}
+	}
+	isDir := func(p string) bool {
+		st, err := os.Stat(p)
+		return err == nil && st.IsDir()
+	}
+	for _, c := range controllers {
+		dir := filepath.Join(r.cgroupRoot(), c, filepath.Clean("/"+cgPath))
+		if isDir(dir) {
+			return dir, true
+		}
 	}
 	if pid == r.self() {
-		if st, err := os.Stat(base); err == nil && st.IsDir() {
-			return base, true
+		for _, c := range controllers {
+			if base := filepath.Join(r.cgroupRoot(), c); isDir(base) {
+				return base, true
+			}
 		}
 	}
 	return "", false
