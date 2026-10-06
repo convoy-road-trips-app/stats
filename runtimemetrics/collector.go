@@ -25,7 +25,9 @@ type Config struct {
 
 	// ProcessMetrics enables process-level metrics (CPU, memory, files, threads).
 	ProcessMetrics bool
-	// DelayMetrics enables kernel scheduler delay metrics.
+	// DelayMetrics enables kernel scheduler delay counters (Linux taskstats).
+	// The first read failure is reported through OnError("delay", err) once
+	// and disables delay collection permanently.
 	DelayMetrics bool
 	// OnError, if set, is called when a metric source fails. source names the
 	// failing source (for example "delay"); the client counts it under
@@ -85,6 +87,9 @@ type Collector struct {
 	// set and the platform supports it.
 	proc *processState
 
+	// delay is the delay metrics state, nil unless Config.DelayMetrics is set.
+	delay *delayState
+
 	startOnce sync.Once
 	stopOnce  sync.Once
 	stopCh    chan struct{}
@@ -137,8 +142,14 @@ func New(cfg Config, record RecordFunc) *Collector {
 		proc = newPlatformProcessState()
 	}
 
+	var delay *delayState
+	if cfg.DelayMetrics {
+		delay = newDelayState()
+	}
+
 	return &Collector{
 		proc:      proc,
+		delay:     delay,
 		cfg:       cfg,
 		record:    record,
 		samples:   samples,
@@ -249,6 +260,7 @@ func (c *Collector) collectOnce() {
 	}
 
 	c.collectProcess()
+	c.collectDelay()
 
 	gomaxprocs := float64(runtime.GOMAXPROCS(0))
 	c.record(c.prefix()+"gomaxprocs", models.MetricTypeGauge, gomaxprocs)
