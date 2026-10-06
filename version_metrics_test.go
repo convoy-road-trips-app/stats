@@ -160,7 +160,7 @@ func TestVersionReportingDisabledByOption(t *testing.T) {
 }
 
 func TestVersionReportingDisabledByEnv(t *testing.T) {
-	for _, value := range []string{"true", "TRUE", "yes", "1"} {
+	for _, value := range []string{"true", "TRUE", "yes", "1", "on"} {
 		t.Run(value, func(t *testing.T) {
 			// Given: the environment disables reporting
 			t.Setenv(envDisableVersionReporting, value)
@@ -179,7 +179,7 @@ func TestVersionReportingDisabledByEnv(t *testing.T) {
 }
 
 func TestVersionReportingEnvIgnoresOtherValues(t *testing.T) {
-	// Given: an environment value outside true|TRUE|yes|1
+	// Given: an environment value outside true|TRUE|yes|1|on
 	t.Setenv(envDisableVersionReporting, "false")
 	capture := &versionCapture{}
 	client := newVersionClient(t, capture)

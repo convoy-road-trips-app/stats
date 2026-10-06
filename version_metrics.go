@@ -13,7 +13,7 @@ import (
 
 const (
 	// envDisableVersionReporting disables version reporting (both stats_version
-	// and go_version) when set to true, TRUE, yes or 1. WithVersionReporting
+	// and go_version) when set to true, TRUE, yes, 1 or on. WithVersionReporting
 	// takes precedence over it.
 	envDisableVersionReporting = "STATS_DISABLE_GO_VERSION_REPORTING"
 
@@ -28,7 +28,7 @@ const (
 // default: the first successful record on the root client also records the
 // gauges stats_version and go_version (value 1, the version in an attribute of
 // the same name), tagged with the service and environment only. Setting
-// STATS_DISABLE_GO_VERSION_REPORTING to true, TRUE, yes or 1 disables both
+// STATS_DISABLE_GO_VERSION_REPORTING to true, TRUE, yes, 1 or on disables both
 // gauges; an explicit WithVersionReporting, true or false, wins over it.
 func WithVersionReporting(enabled bool) Option {
 	return func(c *Config) {
@@ -43,7 +43,7 @@ func versionReportingEnabled(cfg *Config) bool {
 		return *cfg.VersionReporting
 	}
 	switch strings.TrimSpace(os.Getenv(envDisableVersionReporting)) {
-	case "true", "TRUE", "yes", "1":
+	case "true", "TRUE", "yes", "1", "on":
 		return false
 	}
 	return true
