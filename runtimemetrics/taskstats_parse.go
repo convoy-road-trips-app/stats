@@ -47,16 +47,26 @@ func align4(n int) int { return (n + nlAlign - 1) &^ (nlAlign - 1) }
 // different sequence are ignored. It returns found=false with a nil error if
 // no matching data message was present. It never panics on malformed input.
 func ParseTaskstatsReply(buf []byte, seq uint32) (DelayInfo, bool, error) {
+	return findReply(buf, seq, parseTaskstatsMessage)
+}
+
+// findReply scans buf, a buffer of netlink messages, for the reply to the
+// request with sequence number seq. It passes each matching data message
+// payload to parse until parse reports found or fails. Messages with a
+// different sequence and ACKs are skipped; an NLMSG_ERROR reply returns its
+// errno.
+func findReply[T any](buf []byte, seq uint32, parse func(payload []byte) (T, bool, error)) (reply T, found bool, err error) {
+	var zero T
 	for len(buf) > 0 {
 		// Decode the nlmsghdr: len u32, type u16, flags u16, seq u32, pid u32.
 		if len(buf) < nlmsgHdrLen {
-			return DelayInfo{}, false, fmt.Errorf("%w: netlink header", errTaskstatsShort)
+			return zero, false, fmt.Errorf("%w: netlink header", errTaskstatsShort)
 		}
 		msgLen := int(binary.NativeEndian.Uint32(buf[0:4]))
 		msgType := binary.NativeEndian.Uint16(buf[4:6])
 		msgSeq := binary.NativeEndian.Uint32(buf[8:12])
 		if msgLen < nlmsgHdrLen || msgLen > len(buf) {
-			return DelayInfo{}, false, fmt.Errorf("%w: netlink length %d of %d", errTaskstatsShort, msgLen, len(buf))
+			return zero, false, fmt.Errorf("%w: netlink length %d of %d", errTaskstatsShort, msgLen, len(buf))
 		}
 		payload := buf[nlmsgHdrLen:msgLen]
 		// Advance to the next message; the final one may lack padding.
@@ -71,7 +81,7 @@ func ParseTaskstatsReply(buf []byte, seq uint32) (DelayInfo, bool, error) {
 		if msgType == nlmsgError {
 			// Payload starts with int32 errno (negative); 0 is an ACK.
 			if len(payload) < 4 {
-				return DelayInfo{}, false, fmt.Errorf("%w: netlink error payload", errTaskstatsShort)
+				return zero, false, fmt.Errorf("%w: netlink error payload", errTaskstatsShort)
 			}
 			code := binary.NativeEndian.Uint32(payload[0:4])
 			if code == 0 {
@@ -81,15 +91,15 @@ func ParseTaskstatsReply(buf []byte, seq uint32) (DelayInfo, bool, error) {
 			if code&(1<<31) != 0 {
 				code = -code
 			}
-			return DelayInfo{}, false, fmt.Errorf("taskstats: netlink error: %w", syscall.Errno(code))
+			return zero, false, fmt.Errorf("taskstats: netlink error: %w", syscall.Errno(code))
 		}
 
-		info, ok, err := parseTaskstatsMessage(payload)
-		if err != nil || ok {
-			return info, ok, err
+		reply, found, err = parse(payload)
+		if err != nil || found {
+			return reply, found, err
 		}
 	}
-	return DelayInfo{}, false, nil
+	return zero, false, nil
 }
 
 // parseTaskstatsMessage decodes one data message payload (genlmsghdr followed
