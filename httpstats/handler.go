@@ -2,6 +2,7 @@ package httpstats
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ const (
 	serverRequestSize  = "http.server.request.body.size"
 	serverResponseSize = "http.server.response.body.size"
 	serverActive       = "http.server.active_requests"
+	serverPrefix       = "http.server"
 )
 
 // SetDefaultRecorder sets the recorder that NewHandler records to. Until it is
@@ -40,8 +42,8 @@ func SetDefaultRecorder(r stats.Recorder) {
 // SetDefaultRecorder. Until a default recorder is set it records nothing.
 //
 // See NewHandlerWith for the metrics and attributes.
-func NewHandler(h http.Handler) http.Handler {
-	return &handler{h: h, sink: sink{useDefault: true}}
+func NewHandler(h http.Handler, opts ...Option) http.Handler {
+	return &handler{h: h, sink: sink{useDefault: true}, cfg: newConfig(opts)}
 }
 
 // NewHandlerWith returns a handler that serves requests with h and records to
@@ -54,10 +56,25 @@ func NewHandler(h http.Handler) http.Handler {
 //   - http.server.request.body.size and http.server.response.body.size: the
 //     bytes the handler read from the request body and wrote to the response,
 //     in bytes.
+//   - http.server.request.header.size and http.server.response.header.size:
+//     the size of the headers in bytes, counting "Key: value\r\n" per value.
+//     The response headers are those set by the handler, not the ones net/http
+//     adds while writing (Date, an automatic Content-Length).
+//   - http.server.request.header.count and http.server.response.header.count:
+//     the number of header values, unit {header}.
+//   - http.server.error.count: a counter, recorded with value 1 only for a
+//     failed request: status 500 or higher (including a panic), or an error
+//     other than io.EOF while the handler read the request body. Its
+//     error.type is the status code, or the Go type name of the body error.
 //   - http.server.active_requests: a gauge of the requests being handled by
 //     this handler, carrying only the request's context tags.
 //
-// The first three carry these attributes:
+// There is no request or response count metric: the sample count of the
+// duration histogram already is the number of requests, and the response count
+// would be the same number again.
+//
+// Every metric but the gauge and the error counter's own error.type carries
+// these attributes:
 //
 //   - http.request.method: the request method when it is a known HTTP method,
 //     otherwise "_OTHER".
@@ -70,20 +87,23 @@ func NewHandler(h http.Handler) http.Handler {
 //     the request matched a pattern, for example through http.ServeMux, and
 //     never from the request path.
 //   - error.type: the status code as a string, only when it is 500 or higher.
+//   - the content attributes of WithContentAttributes, only when that option is
+//     given.
 //
 // The request path and URL are never recorded, because they are unbounded.
 //
 // Tags attached to the request context with RequestWithTags before the handler
 // runs are added to every metric. If h panics, the request is recorded with
 // status 500 and error.type "500", and the panic continues.
-func NewHandlerWith(r stats.Recorder, h http.Handler) http.Handler {
-	return &handler{h: h, sink: sink{r: r}}
+func NewHandlerWith(r stats.Recorder, h http.Handler, opts ...Option) http.Handler {
+	return &handler{h: h, sink: sink{r: r}, cfg: newConfig(opts)}
 }
 
 // handler records metrics around the wrapped handler.
 type handler struct {
 	h    http.Handler
 	sink sink
+	cfg  config
 	// active counts the requests in flight.
 	active atomic.Int64
 }
@@ -153,15 +173,28 @@ func (h *handler) record(ctx context.Context, rec stats.Recorder, req *http.Requ
 	if status >= http.StatusInternalServerError {
 		attrs = append(attrs, attribute.String(keyErrorType, strconv.Itoa(status)))
 	}
+	if h.cfg.contentAttrs {
+		attrs = append(attrs, contentAttrs(req.Header, req.TransferEncoding, keyReqContentType, keyReqContentEncoding, keyReqTransferEncoding)...)
+		attrs = append(attrs, contentAttrs(tw.Header(), nil, keyResContentType, keyResContentEncoding, keyResTransferEncoding)...)
+	}
 	opts := withKeyValues(attrs...)
 
 	var read int64
+	var bodyErr error
 	if body != nil {
-		read = body.count()
+		read, bodyErr = body.count(), body.readErr()
 	}
 	_ = observeDuration(ctx, rec, serverDuration, elapsed, opts, stats.WithUnit(unitSeconds))
 	_ = rec.Histogram(ctx, serverRequestSize, float64(read), opts, stats.WithUnit(unitBytes))
 	_ = rec.Histogram(ctx, serverResponseSize, float64(tw.bytesWritten()), opts, stats.WithUnit(unitBytes))
+	recordHeaders(ctx, rec, serverPrefix, suffixRequestHeaderSize, suffixRequestHeaderCount, req.Header, opts)
+	recordHeaders(ctx, rec, serverPrefix, suffixResponseHeaderSize, suffixResponseHeaderCount, tw.Header(), opts)
+	switch {
+	case status >= http.StatusInternalServerError:
+		recordError(ctx, rec, serverPrefix, opts)
+	case bodyErr != nil:
+		recordError(ctx, rec, serverPrefix, withKeyValues(append(attrs, attribute.String(keyErrorType, fmt.Sprintf("%T", bodyErr)))...))
+	}
 }
 
 // routeFromPattern returns pattern without its leading method, so that

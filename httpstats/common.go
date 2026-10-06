@@ -2,6 +2,7 @@ package httpstats
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strconv"
 	"sync/atomic"
@@ -101,13 +102,26 @@ func observeDuration(ctx context.Context, r stats.Recorder, name string, d time.
 type countingBody struct {
 	io.ReadCloser
 	n atomic.Int64
+	// failed holds the first read error other than io.EOF.
+	failed atomic.Pointer[error]
 }
 
 // Read reads from the wrapped body and adds the bytes read to the total.
 func (b *countingBody) Read(p []byte) (int, error) {
 	n, err := b.ReadCloser.Read(p)
 	b.n.Add(int64(n))
+	if err != nil && !errors.Is(err, io.EOF) {
+		b.failed.CompareAndSwap(nil, &err)
+	}
 	return n, err
+}
+
+// readErr returns the first read error other than io.EOF, or nil.
+func (b *countingBody) readErr() error {
+	if p := b.failed.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // count returns the number of bytes read so far.

@@ -87,3 +87,15 @@ func okHandler(status int, body string) http.Handler {
 		_, _ = io.WriteString(w, body)
 	})
 }
+
+// newExp returns a statstest client and its capture.
+func newExp(t *testing.T) (*stats.Client, *statstest.Exporter) {
+	t.Helper()
+	return statstest.NewClient(t)
+}
+
+// flush flushes client.
+func flush(t *testing.T, c *stats.Client) {
+	t.Helper()
+	statstest.Flush(t, c)
+}

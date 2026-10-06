@@ -21,6 +21,7 @@ const (
 	clientDuration     = "http.client.request.duration"
 	clientRequestSize  = "http.client.request.body.size"
 	clientResponseSize = "http.client.response.body.size"
+	clientPrefix       = "http.client"
 )
 
 // Client-only attribute keys.
@@ -35,8 +36,8 @@ const (
 // recorder is set it records nothing.
 //
 // See NewTransportWith for the metrics and attributes.
-func NewTransport(rt http.RoundTripper) http.RoundTripper {
-	return &transport{rt: rt, sink: sink{useDefault: true}}
+func NewTransport(rt http.RoundTripper, opts ...Option) http.RoundTripper {
+	return &transport{rt: rt, sink: sink{useDefault: true}, cfg: newConfig(opts)}
 }
 
 // NewTransportWith returns an http.RoundTripper that sends requests with rt and
@@ -54,8 +55,22 @@ func NewTransport(rt http.RoundTripper) http.RoundTripper {
 //   - http.client.request.body.size and http.client.response.body.size: the
 //     bytes sent from the request body and read from the response body, in
 //     bytes. A request without a body counts 0.
+//   - http.client.request.header.size and http.client.response.header.size:
+//     the size of the headers in bytes, counting "Key: value\r\n" per value,
+//     without the headers net/http adds while writing the request. The
+//     response ones are absent when the round trip failed.
+//   - http.client.request.header.count and http.client.response.header.count:
+//     the number of header values, unit {header}.
+//   - http.client.error.count: a counter, recorded with value 1 only for a
+//     failed request: the round trip failed, reading the response body failed
+//     with anything but io.EOF, or the status is 500 or higher. It has the same
+//     attributes, including error.type, as the metrics above.
 //
-// All three are recorded once, and carry these attributes:
+// There is no request or response count metric: the sample count of the
+// duration histogram already is the number of requests, and the response count
+// would be the same number again.
+//
+// All of them are recorded once, and carry these attributes:
 //
 //   - http.request.method: the request method when it is a known HTTP method,
 //     otherwise "_OTHER".
@@ -68,6 +83,8 @@ func NewTransport(rt http.RoundTripper) http.RoundTripper {
 //     when the round trip fails or reading the response body fails with
 //     anything but io.EOF, otherwise the status code as a string when it is
 //     500 or higher.
+//   - the content attributes of WithContentAttributes, only when that option is
+//     given.
 //
 // The URL path and the full URL are never recorded, because they are
 // unbounded. A round trip error is returned unchanged.
@@ -75,8 +92,8 @@ func NewTransport(rt http.RoundTripper) http.RoundTripper {
 // Tags attached to the request context, see RequestWithTags, are added to every
 // metric. The request passed in is never modified: a copy carries the counting
 // body.
-func NewTransportWith(r stats.Recorder, rt http.RoundTripper) http.RoundTripper {
-	return &transport{rt: rt, sink: sink{r: r}}
+func NewTransportWith(r stats.Recorder, rt http.RoundTripper, opts ...Option) http.RoundTripper {
+	return &transport{rt: rt, sink: sink{r: r}, cfg: newConfig(opts)}
 }
 
 // transport records metrics around the wrapped round tripper.
@@ -85,6 +102,7 @@ type transport struct {
 	// is looked up on every request.
 	rt   http.RoundTripper
 	sink sink
+	cfg  config
 }
 
 // RoundTrip sends req with the wrapped round tripper and records its metrics.
@@ -118,6 +136,10 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		start:   start,
 		attrs:   requestAttrs(req),
 		reqBody: body,
+		reqHdr:  req.Header,
+	}
+	if t.cfg.contentAttrs {
+		m.attrs = append(m.attrs, contentAttrs(req.Header, req.TransferEncoding, keyReqContentType, keyReqContentEncoding, keyReqTransferEncoding)...)
 	}
 
 	resp, err := base.RoundTrip(out)
@@ -129,6 +151,10 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, nil //nolint:nilnil // a misbehaving RoundTripper's result is passed through
 	}
 	m.status = resp.StatusCode
+	m.resHdr, m.hasResp = resp.Header, true
+	if t.cfg.contentAttrs {
+		m.attrs = append(m.attrs, contentAttrs(resp.Header, resp.TransferEncoding, keyResContentType, keyResContentEncoding, keyResTransferEncoding)...)
+	}
 	// A body that is absent, empty, or a two-way stream (101 Switching
 	// Protocols) has no read-until-EOF lifetime to measure: record now and leave
 	// it untouched so type assertions on it keep working.
@@ -185,7 +211,12 @@ type clientMeasure struct {
 	// reqBody and respBody count the bytes of each body; nil when there is none.
 	reqBody  *countingBody
 	respBody *countingBody
-	once     sync.Once
+	// reqHdr and resHdr are the request and response headers; hasResp is false
+	// when no response arrived.
+	reqHdr  http.Header
+	resHdr  http.Header
+	hasResp bool
+	once    sync.Once
 }
 
 // finish records the request's metrics, once. cause is the error that ended
@@ -197,11 +228,14 @@ func (m *clientMeasure) finish(cause error) {
 		if m.status != 0 {
 			attrs = append(attrs, attribute.Int(keyStatusCode, m.status))
 		}
+		failed := true
 		switch {
 		case cause != nil && !errors.Is(cause, io.EOF):
 			attrs = append(attrs, attribute.String(keyErrorType, fmt.Sprintf("%T", cause)))
 		case m.status >= http.StatusInternalServerError:
 			attrs = append(attrs, attribute.String(keyErrorType, strconv.Itoa(m.status)))
+		default:
+			failed = false
 		}
 		opts := withKeyValues(attrs...)
 
@@ -215,6 +249,13 @@ func (m *clientMeasure) finish(cause error) {
 		_ = observeDuration(m.ctx, m.rec, clientDuration, elapsed, opts, stats.WithUnit(unitSeconds))
 		_ = m.rec.Histogram(m.ctx, clientRequestSize, float64(sent), opts, stats.WithUnit(unitBytes))
 		_ = m.rec.Histogram(m.ctx, clientResponseSize, float64(read), opts, stats.WithUnit(unitBytes))
+		recordHeaders(m.ctx, m.rec, clientPrefix, suffixRequestHeaderSize, suffixRequestHeaderCount, m.reqHdr, opts)
+		if m.hasResp {
+			recordHeaders(m.ctx, m.rec, clientPrefix, suffixResponseHeaderSize, suffixResponseHeaderCount, m.resHdr, opts)
+		}
+		if failed {
+			recordError(m.ctx, m.rec, clientPrefix, opts)
+		}
 	})
 }
 
