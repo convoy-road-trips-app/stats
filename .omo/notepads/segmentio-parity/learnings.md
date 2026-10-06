@@ -46,3 +46,7 @@ Conventions, patterns, and successful approaches discovered during work on this 
 - Pure-LOC check: strip blank and `//` lines (`grep -v '^\s*$' | grep -v '^\s*//' | wc -l`); the ceiling is 250. Splits are same-package, by responsibility; shared test helpers live in `*_helpers_test.go`. Test count (`go test -list . ./...`) was identical before and after (621).
 - Example lint: `main` calls `run() error` (so `defer` runs before `os.Exit`); `net.Listen`/`DialTimeout` become `net.ListenConfig.Listen(ctx, ...)`/`net.Dialer.DialContext`, which needs the ctx created before the listener; `defer x.Close()` becomes `defer func() { _ = x.Close() }()`; gocyclo on `run()` fixed by extracting `record` and `scrape` helpers.
 - A golangci-lint cache shared across worktrees prints "failed to get doc" warnings for files of deleted worktrees; harmless, but use a per-worktree `GOLANGCI_LINT_CACHE`.
+
+## gap-netstats
+- Upstream zone discovery (conn.go zoneOf/currentZone) uses github.com/segmentio/vpcinfo (AWS metadata subnets -> AZ names), not address inspection. Only an offline address-class equivalent is possible without a dependency; in_zone then means same network class, not same AZ.
+- Upstream `BaseConn()` is just a method on the unexported conn. An exported interface named BaseConn cannot be embedded in a struct and still expose the method (field name shadows it), so users implement it rather than embed it.
