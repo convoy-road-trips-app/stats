@@ -151,7 +151,7 @@ func (h *Handler) observe(m *models.Metric, now time.Time) error {
 	}
 
 	// Validate labels first so a failed observation registers nothing.
-	set := attribute.NewSet(m.Attributes...)
+	set := attribute.NewSet(slices.Clone(m.Attributes)...)
 	labels, err := ExposedLabels(m.Name, m.Type, set.ToSlice())
 	if err != nil {
 		return err

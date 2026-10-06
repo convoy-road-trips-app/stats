@@ -1,0 +1,22 @@
+PR27 — shared per-metric histogram buckets across OTLP and Prometheus
+
+Worktree: /Users/ddas/dev/src/github.com/convoy-road-trips-app/stats-wt-sp27
+Branch: feat/sp-27-shared-buckets
+
+Focused test:
+  go test -run '^TestBucketsSharedAcrossOTLPAndPrometheus$' -count=1 .
+  PASS
+
+Required verification:
+  go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run --new-from-rev=origin/main ./...
+  PASS: 0 issues. Linter emitted a generated_file_filter warning while referencing another worktree path that no longer exists; it did not report an issue.
+  go vet ./... && go test -race -count=1 ./...
+  PASS: vet completed; all packages passed under race detector.
+  GIT_MASTER=1 git diff --exit-code origin/main -- go.mod go.sum
+  PASS: no module-file changes.
+  GOOS=darwin go build ./... && GOOS=linux go build ./... && GOOS=windows go build ./...
+  PASS: all three platform builds.
+
+Production fix retained from partial attempt:
+  Clone metric attribute slices before attribute.NewSet in OTLP and Prometheus exporters. OTel attribute.NewSet sorts its input slice; exporters run concurrently against shared metrics, so cloning prevents mutation/data races.
+  Bucket-selection production code required no changes.

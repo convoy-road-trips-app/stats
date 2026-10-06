@@ -3,6 +3,7 @@ package otlp
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -137,7 +138,7 @@ func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Me
 			continue
 		}
 		bounds := models.BucketsFor(config.BucketsByName, globalBounds, m.Name)
-		attrs := attribute.NewSet(m.Attributes...)
+		attrs := attribute.NewSet(slices.Clone(m.Attributes)...)
 		key := histogramKey{name: m.Name, attributes: attrs.Equivalent()}
 		histogram, exists := histograms[m.Name]
 		if !exists {
@@ -182,7 +183,7 @@ func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Me
 	addedHistograms := make(map[string]struct{}, len(histograms))
 
 	for _, m := range metrics {
-		attrs := attribute.NewSet(m.Attributes...)
+		attrs := attribute.NewSet(slices.Clone(m.Attributes)...)
 		metricData := metricdata.Metrics{
 			Name:        m.Name,
 			Description: m.Description,
