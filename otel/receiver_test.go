@@ -19,7 +19,7 @@ import (
 
 // wirePoint is the latest datapoint a real OTLP/HTTP receiver got for one series.
 type wirePoint struct {
-	kind      string // "sum", "gauge" or "histogram"
+	kind      string // "sum", "gauge", "histogram" or "exponential"
 	monotonic bool
 	value     float64
 	exemplars []*metricspb.Exemplar
@@ -77,6 +77,9 @@ func (r *metricsReceiver) record(request *collectormetricspb.ExportMetricsServic
 				}
 				for _, p := range metric.GetHistogram().GetDataPoints() {
 					r.points[seriesKey(name, p.GetAttributes())] = wirePoint{kind: "histogram", value: p.GetSum(), exemplars: p.GetExemplars()}
+				}
+				for _, p := range metric.GetExponentialHistogram().GetDataPoints() {
+					r.points[seriesKey(name, p.GetAttributes())] = wirePoint{kind: "exponential", value: p.GetSum(), exemplars: p.GetExemplars()}
 				}
 			}
 		}

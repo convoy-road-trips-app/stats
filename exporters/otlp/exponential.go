@@ -3,8 +3,12 @@ package otlp
 import (
 	"math"
 	"slices"
+	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+
+	"github.com/convoy-road-trips-app/stats/models"
 )
 
 // Limits of the exponential histogram parameters, the same as the OTel SDK's.
@@ -235,4 +239,38 @@ func bucketOffset(index int) int32 {
 		return 0
 	}
 	return int32(index)
+}
+
+// expoSeries is the exponential histogram of one series in one export.
+type expoSeries struct {
+	attributes attribute.Set
+	time       time.Time // of the newest observation
+	histogram  *expoHistogram
+	exemplars  newestExemplars
+}
+
+// newExpoSeries returns an empty series that keeps min(20, maxSize)
+// exemplars, the reservoir size of the OTel SDK for exponential histograms.
+func newExpoSeries(attributes attribute.Set, maxSize, maxScale int32) *expoSeries {
+	histogram := newExpoHistogram(maxSize, maxScale)
+	return &expoSeries{
+		attributes: attributes,
+		histogram:  histogram,
+		exemplars:  newestExemplars{limit: int(min(histogram.maxSize, 20))},
+	}
+}
+
+func (s *expoSeries) record(m *models.Metric) {
+	s.histogram.record(m.Value)
+	if m.Timestamp.After(s.time) {
+		s.time = m.Timestamp
+	}
+	s.exemplars.offer(m)
+}
+
+// point returns the series as a datapoint. The accumulator sets StartTime.
+func (s *expoSeries) point() metricdata.ExponentialHistogramDataPoint[float64] {
+	point := s.histogram.snapshot()
+	point.Attributes, point.Time, point.Exemplars = s.attributes, s.time, s.exemplars.sorted()
+	return point
 }

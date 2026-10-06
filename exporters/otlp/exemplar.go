@@ -1,6 +1,8 @@
 package otlp
 
 import (
+	"slices"
+
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/convoy-road-trips-app/stats/models"
@@ -54,4 +56,42 @@ func (b bucketExemplars) attach(histograms map[string]metricdata.Histogram[float
 			}
 		}
 	}
+}
+
+// newestExemplars keeps the newest sampled exemplars of one datapoint, at most
+// limit. The OTel SDK keeps a random sample of that size for exponential
+// histograms; like the other datapoints of this exporter, this keeps the newest.
+type newestExemplars struct {
+	limit int
+	kept  []metricdata.Exemplar[float64]
+}
+
+// offer keeps the exemplar of m. When full, it replaces the oldest kept
+// exemplar unless m is older still.
+func (e *newestExemplars) offer(m *models.Metric) {
+	exemplar := exemplarOf(m)
+	if exemplar == nil {
+		return
+	}
+	if len(e.kept) < e.limit {
+		e.kept = append(e.kept, exemplar[0])
+		return
+	}
+	oldest := 0
+	for i := range e.kept {
+		if e.kept[i].Time.Before(e.kept[oldest].Time) {
+			oldest = i
+		}
+	}
+	if !m.Timestamp.Before(e.kept[oldest].Time) {
+		e.kept[oldest] = exemplar[0]
+	}
+}
+
+// sorted returns the kept exemplars, oldest first.
+func (e *newestExemplars) sorted() []metricdata.Exemplar[float64] {
+	slices.SortStableFunc(e.kept, func(a, b metricdata.Exemplar[float64]) int {
+		return a.Time.Compare(b.Time)
+	})
+	return e.kept
 }

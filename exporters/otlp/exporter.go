@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"sort"
 	"sync"
 	"time"
 
@@ -115,7 +114,8 @@ func toResourceMetricsWithBuckets(serviceName string, metrics []*models.Metric, 
 }
 
 // toResourceMetricsWithConfig converts metrics to OTLP data. Each histogram
-// uses config.BucketsByName for its name, then globalBounds, then the defaults.
+// uses config.BucketsByName for its name, then an exponential histogram when
+// config.ExponentialHistogram is set, then globalBounds, then the defaults.
 func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Metric, globalBounds []float64) metricdata.ResourceMetrics {
 	res := resourceForConfig(config)
 	temporality := config.Temporality
@@ -130,57 +130,9 @@ func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Me
 		Metrics: make([]metricdata.Metrics, 0, len(metrics)),
 	}
 
-	histograms := make(map[string]metricdata.Histogram[float64])
-	histogramIndexes := make(map[histogramKey]int)
-	exemplars := bucketExemplars{}
-	for _, m := range metrics {
-		if m.Type != models.MetricTypeHistogram {
-			continue
-		}
-		bounds := models.BucketsFor(config.BucketsByName, globalBounds, m.Name)
-		attrs := attribute.NewSet(slices.Clone(m.Attributes)...)
-		key := histogramKey{name: m.Name, attributes: attrs.Equivalent()}
-		histogram, exists := histograms[m.Name]
-		if !exists {
-			histogram = metricdata.Histogram[float64]{
-				Temporality: metricTemporality(temporality),
-			}
-		}
-		index, exists := histogramIndexes[key]
-		if !exists {
-			index = len(histogram.DataPoints)
-			histogramIndexes[key] = index
-			histogram.DataPoints = append(histogram.DataPoints, metricdata.HistogramDataPoint[float64]{
-				Attributes:   attrs,
-				Time:         m.Timestamp,
-				Bounds:       append([]float64(nil), bounds...),
-				BucketCounts: make([]uint64, len(bounds)+1),
-				Min:          metricdata.NewExtrema(m.Value),
-				Max:          metricdata.NewExtrema(m.Value),
-			})
-		}
-		point := &histogram.DataPoints[index]
-		point.Count++
-		point.Sum += m.Value
-		if m.Timestamp.After(point.Time) {
-			point.Time = m.Timestamp
-		}
-		lowest, _ := point.Min.Value()
-		if m.Value < lowest {
-			point.Min = metricdata.NewExtrema(m.Value)
-		}
-		highest, _ := point.Max.Value()
-		if m.Value > highest {
-			point.Max = metricdata.NewExtrema(m.Value)
-		}
-		bucket := sort.Search(len(bounds), func(i int) bool { return m.Value <= bounds[i] })
-		point.BucketCounts[bucket]++
-		exemplars.offer(key, bucket, len(point.BucketCounts), m)
-		histograms[m.Name] = histogram
-	}
-	exemplars.attach(histograms, histogramIndexes)
-
-	addedHistograms := make(map[string]struct{}, len(histograms))
+	histograms := explicitHistograms(config, metrics, globalBounds)
+	exponential := exponentialHistograms(config, metrics)
+	addedHistograms := make(map[string]struct{}, len(histograms)+len(exponential))
 
 	for _, m := range metrics {
 		attrs := attribute.NewSet(slices.Clone(m.Attributes)...)
@@ -218,8 +170,12 @@ func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Me
 			if _, exists := addedHistograms[m.Name]; exists {
 				continue
 			}
-			metricData.Data = histograms[m.Name]
 			addedHistograms[m.Name] = struct{}{}
+			if histogram, ok := exponential[m.Name]; ok {
+				metricData.Data = histogram
+			} else {
+				metricData.Data = histograms[m.Name]
+			}
 		default:
 			continue
 		}
@@ -231,6 +187,51 @@ func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Me
 		Resource:     res,
 		ScopeMetrics: []metricdata.ScopeMetrics{scopeMetrics},
 	}
+}
+
+// usesExponential reports whether the histogram name is exported as an
+// exponential histogram: config.ExponentialHistogram is set and the name has
+// no explicit buckets of its own.
+func usesExponential(config *models.OTLPConfig, name string) bool {
+	return config.ExponentialHistogram != nil && len(config.BucketsByName[name]) == 0
+}
+
+// exponentialHistograms aggregates the observations of the histograms that
+// usesExponential selects into metricdata.ExponentialHistogram values by name,
+// with a datapoint per attribute set in the order the sets first appear.
+func exponentialHistograms(config *models.OTLPConfig, metrics []*models.Metric) map[string]metricdata.ExponentialHistogram[float64] {
+	if config.ExponentialHistogram == nil {
+		return nil
+	}
+	settings := config.ExponentialHistogram.Resolved()
+	seriesByName := make(map[string][]*expoSeries)
+	seriesByKey := make(map[histogramKey]*expoSeries)
+	for _, m := range metrics {
+		if m.Type != models.MetricTypeHistogram || !usesExponential(config, m.Name) {
+			continue
+		}
+		attrs := attribute.NewSet(slices.Clone(m.Attributes)...)
+		key := histogramKey{name: m.Name, attributes: attrs.Equivalent()}
+		series, exists := seriesByKey[key]
+		if !exists {
+			series = newExpoSeries(attrs, settings.MaxSize, settings.MaxScale)
+			seriesByKey[key] = series
+			seriesByName[m.Name] = append(seriesByName[m.Name], series)
+		}
+		series.record(m)
+	}
+	histograms := make(map[string]metricdata.ExponentialHistogram[float64], len(seriesByName))
+	for name, all := range seriesByName {
+		points := make([]metricdata.ExponentialHistogramDataPoint[float64], 0, len(all))
+		for _, series := range all {
+			points = append(points, series.point())
+		}
+		histograms[name] = metricdata.ExponentialHistogram[float64]{
+			DataPoints:  points,
+			Temporality: metricTemporality(config.Temporality),
+		}
+	}
+	return histograms
 }
 
 // Name returns the exporter name

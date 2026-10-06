@@ -49,6 +49,66 @@ type OTLPConfig struct {
 	// WithHistogramBucketsFor. Bounds are in the units you record in.
 	BucketsByName map[string][]float64
 	Retry         *OTLPRetry // Retry policy for retryable export failures; nil keeps the SDK default
+	// ExponentialHistogram, when set, exports histograms as base-2 exponential
+	// histograms, except a metric with its own BucketsByName entry, which keeps
+	// those explicit buckets. HistogramBuckets then applies to no metric. Nil
+	// exports every histogram with explicit buckets.
+	ExponentialHistogram *OTLPExponentialHistogram
+}
+
+// Defaults of OTLPExponentialHistogram, the OTel SDK defaults for base-2
+// exponential histograms.
+const (
+	DefaultExponentialHistogramMaxSize  int32 = 160
+	DefaultExponentialHistogramMaxScale int32 = 20
+)
+
+// Limits of the resolved OTLPExponentialHistogram settings: the scale limits
+// of the OTel SDK, and at least two buckets per range.
+const (
+	minExponentialHistogramMaxSize  int32 = 2
+	minExponentialHistogramMaxScale int32 = -10
+	maxExponentialHistogramMaxScale int32 = 20
+)
+
+// OTLPExponentialHistogram configures base-2 exponential OTLP histograms. A
+// zero field selects its default.
+type OTLPExponentialHistogram struct {
+	// MaxSize is the most buckets the positive and the negative range of a
+	// datapoint each hold, at least 2. A series whose values need more
+	// buckets is downscaled until they fit. Zero selects
+	// DefaultExponentialHistogramMaxSize.
+	MaxSize int32
+	// MaxScale is the scale every series starts at, in [-10, 20]: bucket
+	// bounds are the powers of 2^(2^-MaxScale). Zero selects
+	// DefaultExponentialHistogramMaxScale, so scale 0 cannot be chosen.
+	MaxScale int32
+}
+
+// Resolved returns the settings with each zero field replaced by its default.
+func (h *OTLPExponentialHistogram) Resolved() OTLPExponentialHistogram {
+	resolved := *h
+	if resolved.MaxSize == 0 {
+		resolved.MaxSize = DefaultExponentialHistogramMaxSize
+	}
+	if resolved.MaxScale == 0 {
+		resolved.MaxScale = DefaultExponentialHistogramMaxScale
+	}
+	return resolved
+}
+
+// Validate checks the resolved settings: MaxSize at least 2 and MaxScale in
+// [-10, 20].
+func (h *OTLPExponentialHistogram) Validate() error {
+	resolved := h.Resolved()
+	if resolved.MaxSize < minExponentialHistogramMaxSize {
+		return fmt.Errorf("exponential histogram max size %d is less than %d", resolved.MaxSize, minExponentialHistogramMaxSize)
+	}
+	if resolved.MaxScale < minExponentialHistogramMaxScale || resolved.MaxScale > maxExponentialHistogramMaxScale {
+		return fmt.Errorf("exponential histogram max scale %d is outside [%d, %d]",
+			resolved.MaxScale, minExponentialHistogramMaxScale, maxExponentialHistogramMaxScale)
+	}
+	return nil
 }
 
 // OTLPOverrides records the OTLP settings a caller stated explicitly through
@@ -131,15 +191,8 @@ func (c *OTLPConfig) Validate() error {
 	if c.ExportTimeout < 0 {
 		return fmt.Errorf("export timeout must not be negative")
 	}
-	if c.HistogramBuckets != nil {
-		if err := ValidateHistogramBuckets(c.HistogramBuckets); err != nil {
-			return err
-		}
-	}
-	for name, bounds := range c.BucketsByName {
-		if err := ValidateHistogramBuckets(bounds); err != nil {
-			return fmt.Errorf("histogram buckets for %q: %w", name, err)
-		}
+	if err := c.validateHistograms(); err != nil {
+		return err
 	}
 	if c.Retry != nil {
 		if err := c.Retry.Validate(); err != nil {
@@ -158,6 +211,24 @@ func (c *OTLPConfig) Validate() error {
 	case "", OTLPProtocolGRPC, OTLPProtocolHTTP:
 	default:
 		return fmt.Errorf("unsupported protocol %q (use %q or %q)", c.Protocol, OTLPProtocolGRPC, OTLPProtocolHTTP)
+	}
+	return nil
+}
+
+// validateHistograms checks the explicit buckets and the exponential settings.
+func (c *OTLPConfig) validateHistograms() error {
+	if c.HistogramBuckets != nil {
+		if err := ValidateHistogramBuckets(c.HistogramBuckets); err != nil {
+			return err
+		}
+	}
+	for name, bounds := range c.BucketsByName {
+		if err := ValidateHistogramBuckets(bounds); err != nil {
+			return fmt.Errorf("histogram buckets for %q: %w", name, err)
+		}
+	}
+	if c.ExponentialHistogram != nil {
+		return c.ExponentialHistogram.Validate()
 	}
 	return nil
 }

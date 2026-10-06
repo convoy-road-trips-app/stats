@@ -25,6 +25,8 @@ type (
 	OTLPOverrides = models.OTLPOverrides
 	// OTLPRetry bounds retries of failed OTLP exports
 	OTLPRetry = models.OTLPRetry
+	// OTLPExponentialHistogram configures base-2 exponential OTLP histograms
+	OTLPExponentialHistogram = models.OTLPExponentialHistogram
 	// OTLPProtocol selects gRPC or HTTP transport
 	OTLPProtocol = models.OTLPProtocol
 	// Temporality selects cumulative or delta metric export.
@@ -110,10 +112,8 @@ func ValidateConfig(c *Config) error {
 		}
 	}
 
-	if c.OTLP != nil && (c.OTLP.Enabled || c.OTLP.HistogramBuckets != nil || len(c.OTLP.BucketsByName) > 0 || c.OTLP.Temporality != "" || len(c.OTLP.ResourceAttributes) > 0 || c.OTLP.Retry != nil) {
-		if err := c.OTLP.Validate(); err != nil {
-			return fmt.Errorf("otlp config: %w", err)
-		}
+	if err := validateOTLPConfig(c.OTLP); err != nil {
+		return err
 	}
 
 	for name, bounds := range c.HistogramBucketsByName {
@@ -129,6 +129,26 @@ func ValidateConfig(c *Config) error {
 	}
 
 	return validateCustomExporters(c)
+}
+
+// validateOTLPConfig validates the OTLP settings, if any, when OTLP is enabled
+// or an option set one of them. Invalid exponential histogram settings return
+// ErrInvalidConfig, even when OTLP is not enabled.
+func validateOTLPConfig(o *OTLPConfig) error {
+	if o == nil {
+		return nil
+	}
+	if o.ExponentialHistogram != nil {
+		if err := o.ExponentialHistogram.Validate(); err != nil {
+			return fmt.Errorf("%w: otlp config: %w", ErrInvalidConfig, err)
+		}
+	}
+	if o.Enabled || o.HistogramBuckets != nil || len(o.BucketsByName) > 0 || o.Temporality != "" || len(o.ResourceAttributes) > 0 || o.Retry != nil {
+		if err := o.Validate(); err != nil {
+			return fmt.Errorf("otlp config: %w", err)
+		}
+	}
+	return nil
 }
 
 // validateCustomExporters rejects nil custom exporters and names that are used

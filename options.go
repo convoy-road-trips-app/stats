@@ -227,6 +227,9 @@ func WithOTLP(cfg *OTLPConfig) Option {
 		merged.ResourceAttributes = slices.Clone(cfg.ResourceAttributes)
 		merged.HistogramBuckets = slices.Clone(cfg.HistogramBuckets)
 		merged.Headers = maps.Clone(cfg.Headers)
+		if cfg.ExponentialHistogram != nil {
+			merged.ExponentialHistogram = ref(*cfg.ExponentialHistogram)
+		}
 		if c.OTLP != nil {
 			if merged.HistogramBuckets == nil {
 				merged.HistogramBuckets = c.OTLP.HistogramBuckets
@@ -237,6 +240,7 @@ func WithOTLP(cfg *OTLPConfig) Option {
 			merged.ServiceName = cmp.Or(merged.ServiceName, c.OTLP.ServiceName)
 			merged.DeploymentEnvironment = cmp.Or(merged.DeploymentEnvironment, c.OTLP.DeploymentEnvironment)
 			merged.Retry = cmp.Or(merged.Retry, c.OTLP.Retry)
+			merged.ExponentialHistogram = cmp.Or(merged.ExponentialHistogram, c.OTLP.ExponentialHistogram)
 		}
 		merged.Enabled = true
 		c.OTLP = &merged
@@ -279,6 +283,26 @@ func WithHistogramBucketsFor(name string, bounds ...float64) Option {
 			c.HistogramBucketsByName = make(map[string][]float64)
 		}
 		c.HistogramBucketsByName[name] = append([]float64{}, bounds...)
+	}
+}
+
+// WithExponentialHistogram makes OTLP export histograms as base-2 exponential
+// histograms instead of explicit buckets. Every series starts at scale
+// maxScale, in [-10, 20], and is downscaled when its values need more than
+// maxSize buckets, at least 2, in its positive or its negative range. Zero
+// selects the default of either parameter: 160 buckets and scale 20, as in the
+// OTel SDK (scale 0 itself cannot be chosen). NewClient returns
+// ErrInvalidConfig for other values out of range.
+//
+// A metric with its own buckets from WithHistogramBucketsFor keeps them;
+// WithHistogramBuckets then applies to no metric. Other exporters are not
+// affected.
+func WithExponentialHistogram(maxSize, maxScale int32) Option {
+	return func(c *Config) {
+		if c.OTLP == nil {
+			c.OTLP = &OTLPConfig{}
+		}
+		c.OTLP.ExponentialHistogram = &OTLPExponentialHistogram{MaxSize: maxSize, MaxScale: maxScale}
 	}
 }
 

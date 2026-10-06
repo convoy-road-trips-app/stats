@@ -1,0 +1,68 @@
+PR15c - todo 10 (exponential histograms for OTLP): failure path
+Branch: feat/sp-15c-expo-otlp (base main e3cbeb7)
+Date: 2026-10-06T20:42:06Z
+
+== go run of a program calling stats.NewClient(stats.WithExponentialHistogram(1, 30))
+func main() {
+	client, err := stats.NewClient(stats.WithExponentialHistogram(1, 30))
+	fmt.Printf("client == nil: %v\n", client == nil)
+	fmt.Printf("err: %v\n", err)
+	fmt.Printf("errors.Is(err, stats.ErrInvalidConfig): %v\n", errors.Is(err, stats.ErrInvalidConfig))
+}
+--- output:
+client == nil: true
+err: invalid configuration: stats: invalid configuration: otlp config: exponential histogram max size 1 is less than 2
+errors.Is(err, stats.ErrInvalidConfig): true
+exit=0
+
+== go test -race -count=1 -v -run '^TestWithExponentialHistogram_invalid_settings_return_ErrInvalidConfig$' .
+=== RUN   TestWithExponentialHistogram_invalid_settings_return_ErrInvalidConfig
+=== RUN   TestWithExponentialHistogram_invalid_settings_return_ErrInvalidConfig/max_size_1_and_scale_30
+    options_test.go:134: invalid configuration: stats: invalid configuration: otlp config: exponential histogram max size 1 is less than 2
+=== RUN   TestWithExponentialHistogram_invalid_settings_return_ErrInvalidConfig/max_size_1
+    options_test.go:134: invalid configuration: stats: invalid configuration: otlp config: exponential histogram max size 1 is less than 2
+=== RUN   TestWithExponentialHistogram_invalid_settings_return_ErrInvalidConfig/negative_max_size
+    options_test.go:134: invalid configuration: stats: invalid configuration: otlp config: exponential histogram max size -160 is less than 2
+=== RUN   TestWithExponentialHistogram_invalid_settings_return_ErrInvalidConfig/scale_above_20
+    options_test.go:134: invalid configuration: stats: invalid configuration: otlp config: exponential histogram max scale 21 is outside [-10, 20]
+=== RUN   TestWithExponentialHistogram_invalid_settings_return_ErrInvalidConfig/scale_below_-10
+    options_test.go:134: invalid configuration: stats: invalid configuration: otlp config: exponential histogram max scale -11 is outside [-10, 20]
+--- PASS: TestWithExponentialHistogram_invalid_settings_return_ErrInvalidConfig (0.00s)
+    --- PASS: TestWithExponentialHistogram_invalid_settings_return_ErrInvalidConfig/max_size_1_and_scale_30 (0.00s)
+    --- PASS: TestWithExponentialHistogram_invalid_settings_return_ErrInvalidConfig/max_size_1 (0.00s)
+    --- PASS: TestWithExponentialHistogram_invalid_settings_return_ErrInvalidConfig/negative_max_size (0.00s)
+    --- PASS: TestWithExponentialHistogram_invalid_settings_return_ErrInvalidConfig/scale_above_20 (0.00s)
+    --- PASS: TestWithExponentialHistogram_invalid_settings_return_ErrInvalidConfig/scale_below_-10 (0.00s)
+PASS
+ok  	github.com/convoy-road-trips-app/stats	1.895s
+exit=0
+
+== Boundaries still accepted: go test -race -count=1 -v -run '^TestWithExponentialHistogram_accepts_the_limits_and_the_defaults$' .
+=== RUN   TestWithExponentialHistogram_accepts_the_limits_and_the_defaults
+--- PASS: TestWithExponentialHistogram_accepts_the_limits_and_the_defaults (0.01s)
+PASS
+ok  	github.com/convoy-road-trips-app/stats	1.846s
+exit=0
+
+== models validation: go test -race -count=1 -v -run 'TestOTLPExponentialHistogram_Validate|TestOTLPConfig_Validate_rejects_invalid_exponential' ./models/
+=== RUN   TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits
+=== RUN   TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits/defaults
+=== RUN   TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits/smallest_size_and_scale
+=== RUN   TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits/finest_scale
+=== RUN   TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits/max_size_1
+=== RUN   TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits/negative_max_size
+=== RUN   TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits/scale_above_20
+=== RUN   TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits/scale_below_-10
+--- PASS: TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits (0.00s)
+    --- PASS: TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits/defaults (0.00s)
+    --- PASS: TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits/smallest_size_and_scale (0.00s)
+    --- PASS: TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits/finest_scale (0.00s)
+    --- PASS: TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits/max_size_1 (0.00s)
+    --- PASS: TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits/negative_max_size (0.00s)
+    --- PASS: TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits/scale_above_20 (0.00s)
+    --- PASS: TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits/scale_below_-10 (0.00s)
+=== RUN   TestOTLPConfig_Validate_rejects_invalid_exponential_histogram_settings
+--- PASS: TestOTLPConfig_Validate_rejects_invalid_exponential_histogram_settings (0.00s)
+PASS
+ok  	github.com/convoy-road-trips-app/stats/models	1.539s
+exit=0

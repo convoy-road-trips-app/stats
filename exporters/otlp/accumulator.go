@@ -2,6 +2,7 @@ package otlp
 
 import (
 	"maps"
+	"slices"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -15,6 +16,9 @@ type seriesState struct {
 	lastTime  time.Time
 	sum       float64
 	histogram metricdata.HistogramDataPoint[float64]
+	// exponential is a deep copy of the last cumulative exponential point:
+	// the exported point's bucket counts belong to the transport.
+	exponential metricdata.ExponentialHistogramDataPoint[float64]
 
 	// Identity of the series, kept so a cumulative export can repeat it in
 	// an interval without observations.
@@ -57,10 +61,11 @@ func (s *seriesState) pointTime(observed, exported time.Time, cumulative bool) t
 // accumulation builds the series state of one export on top of the state
 // committed by the previous successful export.
 type accumulation struct {
-	exported   seriesStates
-	next       seriesStates
-	cumulative bool
-	seen       map[histogramKey]struct{} // series observed in this export
+	exported    seriesStates
+	next        seriesStates
+	cumulative  bool
+	seen        map[histogramKey]struct{} // series observed in this export
+	expoMaxSize int32                     // most buckets per range of merged exponential points
 }
 
 // accumulate builds the next state without committing it until transport succeeds.
@@ -75,6 +80,9 @@ func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics, now time.Time) ser
 		next:       make(seriesStates, len(exported)),
 		cumulative: e.config.Temporality != models.Delta,
 		seen:       make(map[histogramKey]struct{}),
+	}
+	if e.config.ExponentialHistogram != nil {
+		acc.expoMaxSize = e.config.ExponentialHistogram.Resolved().MaxSize
 	}
 	maps.Copy(acc.next, exported)
 	metrics := rm.ScopeMetrics[0].Metrics
@@ -100,6 +108,12 @@ func (e *Exporter) accumulate(rm *metricdata.ResourceMetrics, now time.Time) ser
 		case metricdata.Histogram[float64]:
 			for i := range data.DataPoints {
 				acc.histogramPoint(metaOf(m), &data.DataPoints[i])
+			}
+			m.Data = data
+			merged = append(merged, m)
+		case metricdata.ExponentialHistogram[float64]:
+			for i := range data.DataPoints {
+				acc.exponentialPoint(metaOf(m), &data.DataPoints[i])
 			}
 			m.Data = data
 			merged = append(merged, m)
@@ -188,6 +202,44 @@ func addHistogram(point, previous *metricdata.HistogramDataPoint[float64]) {
 			point.Max = metricdata.NewExtrema(old)
 		}
 	}
+}
+
+// exponentialPoint adds the series' earlier exports to point when cumulative.
+func (a *accumulation) exponentialPoint(meta seriesMeta, point *metricdata.ExponentialHistogramDataPoint[float64]) {
+	key := histogramKey{name: meta.name, attributes: point.Attributes.Equivalent()}
+	state, exists := a.state(key, point.Time)
+	state.meta, state.attributes, state.kind = meta, point.Attributes, kindExponential
+	a.seen[key] = struct{}{}
+	if a.cumulative && exists {
+		addExponential(point, &state.exponential, a.expoMaxSize)
+	}
+	point.StartTime, point.Time = a.times(key, &state, point.Time)
+	if a.cumulative {
+		state.exponential = copyExponential(point) // exemplars belong to one export interval
+	} else {
+		state.exponential = metricdata.ExponentialHistogramDataPoint[float64]{}
+	}
+	a.next[key] = state
+}
+
+// addExponential merges previous into point. Both are downscaled to the
+// coarser of their scales, and further until the merged ranges fit maxSize
+// buckets again; counts, sums and extrema combine. point keeps its own
+// attributes, timestamps and exemplars.
+func addExponential(point, previous *metricdata.ExponentialHistogramDataPoint[float64], maxSize int32) {
+	merged := mergeExpo(expoHistogramFromPoint(previous, maxSize), expoHistogramFromPoint(point, maxSize)).snapshot()
+	merged.Attributes, merged.StartTime, merged.Time, merged.Exemplars = point.Attributes, point.StartTime, point.Time, point.Exemplars
+	*point = merged
+}
+
+// copyExponential returns a copy of point that shares no bucket counts with
+// it and has no exemplars.
+func copyExponential(point *metricdata.ExponentialHistogramDataPoint[float64]) metricdata.ExponentialHistogramDataPoint[float64] {
+	c := *point
+	c.PositiveBucket.Counts = slices.Clone(point.PositiveBucket.Counts)
+	c.NegativeBucket.Counts = slices.Clone(point.NegativeBucket.Counts)
+	c.Exemplars = nil
+	return c
 }
 
 // addSumPoint merges point into the datapoint of its series and keeps the

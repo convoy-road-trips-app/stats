@@ -13,6 +13,7 @@ const (
 	kindSum seriesKind = iota + 1
 	kindHistogram
 	kindGauge
+	kindExponential
 )
 
 // seriesMeta is the name, description and unit of a series.
@@ -84,6 +85,15 @@ func (a *accumulation) unobserved(metrics []metricdata.Metrics, now time.Time) [
 				hist.DataPoints = append(hist.DataPoints, point)
 				m.Data = hist
 			})
+		case kindExponential:
+			point := copyExponential(&state.exponential)
+			point.StartTime, point.Time = start, at
+			metrics = appendUnobserved(metrics, meta, func(m *metricdata.Metrics) {
+				hist, _ := m.Data.(metricdata.ExponentialHistogram[float64])
+				hist.Temporality = metricdata.CumulativeTemporality
+				hist.DataPoints = append(hist.DataPoints, point)
+				m.Data = hist
+			})
 		}
 	}
 	return metrics
@@ -115,6 +125,9 @@ func sameKind(a, b metricdata.Aggregation) bool {
 		return ok
 	case metricdata.Histogram[float64]:
 		_, ok := b.(metricdata.Histogram[float64])
+		return ok
+	case metricdata.ExponentialHistogram[float64]:
+		_, ok := b.(metricdata.ExponentialHistogram[float64])
 		return ok
 	}
 	return false

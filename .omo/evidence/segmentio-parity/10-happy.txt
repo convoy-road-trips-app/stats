@@ -1,0 +1,145 @@
+PR15c - todo 10 (exponential histograms for OTLP): happy path
+Worktree: /Users/ddas/dev/src/github.com/convoy-road-trips-app/stats-wt-sp15c
+Branch: feat/sp-15c-expo-otlp (base main e3cbeb7)
+Date: 2026-10-06T20:41:05Z
+
+== QA command from the plan: go test -race -count=1 -run Expo ./exporters/otlp/ ./
+ok  	github.com/convoy-road-trips-app/stats/exporters/otlp	1.839s
+ok  	github.com/convoy-road-trips-app/stats	2.317s
+exit=0
+
+== Exponential tests by name (go test -race -count=1 -v -run 'Expo|ExponentialHistogram' ./exporters/otlp/ ./ ./models/ ./otel/)
+exit=0
+--- PASS: TestOTLPWireExponential (0.00s)
+--- PASS: TestExpoExplicitBucketsForANameStayExplicit (0.00s)
+--- PASS: TestExpoCumulativeReexport (0.00s)
+--- PASS: TestExpoCumulativeReexportJoinsTheObservedHistogram (0.00s)
+--- PASS: TestExpoCumulativeReexportKeepsEachHistogramType (0.00s)
+--- PASS: TestExpoCumulativeStateSharesNoBucketsWithExports (0.00s)
+--- PASS: TestExpoDeltaSuccessiveExports (0.00s)
+--- PASS: TestExpoCumulativeKeepsStateAfterFailedSend (0.00s)
+--- PASS: TestExpoCumulativeMergesDisjointRanges (0.00s)
+--- PASS: TestExpoCumulativeMergesExtremeValues (0.00s)
+--- PASS: TestExpoCumulativeKeepsExtremaOfEarlierExports (0.00s)
+--- PASS: TestExpoExemplarsBelongToTheirExport (0.00s)
+--- PASS: TestExpoExemplarsKeepTheNewestUpToTheReservoirSize (0.00s)
+--- PASS: TestExpoMergeDifferentScales (0.00s)
+--- PASS: TestExpoMergeDisjointRangesWithGap (0.00s)
+--- PASS: TestExpoMergeEmpty (0.00s)
+--- PASS: TestExpoMergeZeroOnly (0.00s)
+--- PASS: TestExpoMergePositiveOnlyAndNegativeOnly (0.00s)
+--- PASS: TestExpoMergeMinMax (0.00s)
+--- PASS: TestExpoMergeExtremes (0.00s)
+--- PASS: TestExpoMergePropertyMatchesRecordAll (0.01s)
+--- PASS: TestExpoMergeAccumulatorStyleFold (0.00s)
+--- PASS: TestExpoMergeReappliesMaxSize (0.00s)
+--- PASS: TestExpoHistogramFromPointRoundTrip (0.00s)
+--- PASS: TestExpoHistogramFromPointEmpty (0.00s)
+--- PASS: TestExpoMergeDoesNotMutateOrAlias (0.00s)
+--- PASS: TestExpoScale0Values1_2_4 (0.00s)
+--- PASS: TestExpoZeroCount (0.00s)
+--- PASS: TestExpoNegative (0.00s)
+--- PASS: TestExpoDownscaleOnOverflow (0.00s)
+--- PASS: TestExpoExtremeValues (0.00s)
+--- PASS: TestExpoInsertionOrderIndependent (0.00s)
+--- PASS: TestExpoIgnoresNaNAndInf (0.00s)
+--- PASS: TestExpoSnapshotDeepCopy (0.00s)
+--- PASS: TestExpoParameterClamping (0.00s)
+--- PASS: TestExpoIndex (0.00s)
+--- PASS: TestExpoIndexDownscaleConsistent (0.00s)
+--- PASS: TestExpoIndexBucketHoldsValue (0.00s)
+ok  	github.com/convoy-road-trips-app/stats/exporters/otlp	2.974s
+--- PASS: TestWithExponentialHistogram_exports_exponential_histograms_except_per_name_buckets (0.01s)
+--- PASS: TestWithExponentialHistogram_sets_the_OTLP_exponential_settings (0.00s)
+--- PASS: TestWithExponentialHistogram_zero_selects_the_defaults (0.00s)
+--- PASS: TestWithExponentialHistogram_survives_WithOTLP_in_either_order (0.00s)
+--- PASS: TestWithExponentialHistogram_settings_passed_to_WithOTLP_are_copied (0.00s)
+--- PASS: TestWithExponentialHistogram_invalid_settings_return_ErrInvalidConfig (0.00s)
+--- PASS: TestWithExponentialHistogram_accepts_the_limits_and_the_defaults (0.02s)
+ok  	github.com/convoy-road-trips-app/stats	1.891s
+--- PASS: TestOTLPExponentialHistogram_Resolved_replaces_zero_fields_with_the_defaults (0.00s)
+--- PASS: TestOTLPExponentialHistogram_Validate_checks_the_resolved_limits (0.00s)
+ok  	github.com/convoy-road-trips-app/stats/models	2.157s
+--- PASS: TestMeterProvider_WithExponentialHistogram_exports_exponential_histograms (0.01s)
+ok  	github.com/convoy-road-trips-app/stats/otel	3.334s
+
+== go build ./... && go vet ./...
+ok
+
+== go test -race -count=1 ./...
+ok  	github.com/convoy-road-trips-app/stats	8.720s
+ok  	github.com/convoy-road-trips-app/stats/debugstats	2.144s
+?   	github.com/convoy-road-trips-app/stats/examples/basic	[no test files]
+ok  	github.com/convoy-road-trips-app/stats/examples/docker	3.666s
+?   	github.com/convoy-road-trips-app/stats/examples/multibackend	[no test files]
+?   	github.com/convoy-road-trips-app/stats/examples/otel	[no test files]
+ok  	github.com/convoy-road-trips-app/stats/examples/quickstart	6.330s
+?   	github.com/convoy-road-trips-app/stats/examples/runtimemetrics	[no test files]
+ok  	github.com/convoy-road-trips-app/stats/examples/testing	7.042s
+ok  	github.com/convoy-road-trips-app/stats/exporters	4.555s
+?   	github.com/convoy-road-trips-app/stats/exporters/cloudwatch	[no test files]
+ok  	github.com/convoy-road-trips-app/stats/exporters/datadog	8.153s
+ok  	github.com/convoy-road-trips-app/stats/exporters/otlp	1.897s
+ok  	github.com/convoy-road-trips-app/stats/exporters/prometheus	5.404s
+ok  	github.com/convoy-road-trips-app/stats/httpstats	8.073s
+?   	github.com/convoy-road-trips-app/stats/internal/types	[no test files]
+ok  	github.com/convoy-road-trips-app/stats/iostats	4.937s
+ok  	github.com/convoy-road-trips-app/stats/models	5.775s
+ok  	github.com/convoy-road-trips-app/stats/netstats	8.327s
+ok  	github.com/convoy-road-trips-app/stats/otel	9.229s
+ok  	github.com/convoy-road-trips-app/stats/runtimemetrics	8.525s
+ok  	github.com/convoy-road-trips-app/stats/serializers	7.642s
+ok  	github.com/convoy-road-trips-app/stats/statstest	8.151s
+ok  	github.com/convoy-road-trips-app/stats/transport	8.085s
+exit=0
+
+== GOOS=darwin|linux|windows go build ./...
+darwin ok
+linux ok
+windows ok
+
+== git diff --exit-code main -- go.mod go.sum
+clean
+
+== golangci-lint v2.12.2 run --new-from-rev=main ./...  (the CI gate: golangci-lint-action only-new-issues)
+0 issues.
+exit=0
+
+== make lint
+The golangci-lint on PATH is v1.64.8, which refuses the v2 .golangci.yml (same on main):
+Failed executing command with error: you are using a configuration file for golangci-lint v2 with golangci-lint v1: please use golangci-lint v2
+make: *** [lint] Error 3
+With v2.12.2 first on PATH, make lint reports the issues that already exist on main:
+examples/basic/main.go:22:20: Error return value of `client.Close` is not checked (errcheck)
+examples/multibackend/main.go:47:20: Error return value of `client.Close` is not checked (errcheck)
+examples/multibackend/main.go:63:17: Error return value of `client.Counter` is not checked (errcheck)
+examples/multibackend/main.go:71:14: Error return value of `client.Gauge` is not checked (errcheck)
+examples/multibackend/main.go:78:19: Error return value of `client.Histogram` is not checked (errcheck)
+examples/multibackend/main.go:84:18: Error return value of `client.Increment` is not checked (errcheck)
+examples/multibackend/main.go:88:20: Error return value of `client.IncrementBy` is not checked (errcheck)
+examples/multibackend/main.go:95:15: Error return value of `client.Timing` is not checked (errcheck)
+examples/multibackend/main.go:101:16: Error return value of `client.Counter` is not checked (errcheck)
+examples/otel/main.go:38:25: Error return value of `provider.Shutdown` is not checked (errcheck)
+transport/udp.go:98:14: Error return value of `pool.Close` is not checked (errcheck)
+transport/udp.go:160:13: Error return value of `conn.Close` is not checked (errcheck)
+transport/udp.go:170:13: Error return value of `conn.Close` is not checked (errcheck)
+transport/udp.go:275:13: Error return value of `conn.Close` is not checked (errcheck)
+49 issues:
+* errcheck: 14
+* errorlint: 1
+* exhaustive: 1
+* gocritic: 1
+* gocyclo: 1
+* gosec: 4
+* intrange: 3
+* prealloc: 1
+* revive: 10
+* staticcheck: 3
+* testifylint: 3
+* unused: 7
+make: *** [lint] Error 1
+Full issue lists of main and this branch (max-same-issues=0, max-issues-per-linter=0, line numbers dropped) differ only in:
+5c5
+< config.go: cyclomatic complexity 29 of func `ValidateConfig` is high (> 15) (gocyclo)
+---
+> config.go: cyclomatic complexity 22 of func `ValidateConfig` is high (> 15) (gocyclo)
