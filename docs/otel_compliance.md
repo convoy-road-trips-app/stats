@@ -195,7 +195,7 @@ With `OTEL_SDK_DISABLED=true` (case-insensitive), `stats.NewClient`, `otel.NewMe
 
 ### Version metrics
 
-On the first successful record of a root client, the library also records the gauges `stats_version` (the module version, or `(devel)`) and `go_version` (`runtime.Version()`, skipped for `devel` toolchains), each with value 1, the version in an attribute of the same name, and tagged with service and environment only. This applies in both modes and adds two series per process. `stats.WithVersionReporting(false)` or `STATS_DISABLE_GO_VERSION_REPORTING=true|TRUE|yes|1` turns it off; the option wins over the variable.
+On the first successful record of a root client, the library also records the gauges `stats_version` (the module version, or `(devel)`) and `go_version` (`runtime.Version()`, skipped for `devel` toolchains), each with value 1, the version in an attribute of the same name, and tagged with service and environment only. This applies in both modes and adds two series per process. `stats.WithVersionReporting(false)` or `STATS_DISABLE_GO_VERSION_REPORTING=true|TRUE|yes|1|on` turns it off; the option wins over the variable.
 
 ### Resource
 

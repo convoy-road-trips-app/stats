@@ -370,7 +370,7 @@ The supported variables are listed in [docs/usage.md](docs/usage.md#environment-
 
 #### Version metrics and disabling
 
-- On the first successful record, a root client also records the gauges `stats_version` and `go_version` (value 1, the version in an attribute of the same name, tagged with service and environment only). This adds two series per process. Turn it off with `stats.WithVersionReporting(false)` or `STATS_DISABLE_GO_VERSION_REPORTING=true|TRUE|yes|1`. The option wins over the environment.
+- On the first successful record, a root client also records the gauges `stats_version` and `go_version` (value 1, the version in an attribute of the same name, tagged with service and environment only). This adds two series per process. Turn it off with `stats.WithVersionReporting(false)` or `STATS_DISABLE_GO_VERSION_REPORTING=true|TRUE|yes|1|on`. The option wins over the environment.
 - `OTEL_SDK_DISABLED=true` (case-insensitive) makes `NewClient` and `otel.NewMeterProvider` start nothing and dial nothing. Every recording method returns nil, `Flush`/`Shutdown`/`Close` return nil, and `client.Disabled()` reports the state.
 
 #### Runtime Metrics (Go CPU + Heap)
@@ -783,7 +783,7 @@ This library ports the features of [segmentio/stats](https://github.com/segmenti
 | `Value` types (int, uint, bool, duration) | Accepted by `Report`, converted to `float64` (exact up to 2^53) |
 | `Buckets`, `SetBuckets` | `stats.WithHistogramBucketsFor(name, bounds...)` and `stats.WithHistogramBuckets(bounds)` |
 | `Clock` | `(*Client).Clock(name, opts...)`, `stats.NewClock`, `Stamp`/`Stop` (and `otel.NewClock` for OTel histograms) |
-| `go_version` and `stats_version` metrics | `stats_version` and `go_version` gauges with value 1; `stats.WithVersionReporting(bool)`; `STATS_DISABLE_GO_VERSION_REPORTING` (the value `on` is not accepted, see below) |
+| `go_version` and `stats_version` metrics | `stats_version` and `go_version` gauges with value 1; `stats.WithVersionReporting(bool)`; `STATS_DISABLE_GO_VERSION_REPORTING`; public helpers in package `version`, see below |
 | `MultiHandler`, `FilteredHandler`, custom `Handler` | `stats.WithExporter(Exporter)`, `exporters.Multi(name, timeout, ...)`, `exporters.Filtered(e, filter)` |
 | `httpstats` | `httpstats.NewHandler`, `NewHandlerWith`, `NewTransport`, `NewTransportWith`, `RequestWithTags`, `RequestTags`; standard OTel metric names, with fewer measurements, see [Adapted and not ported](#adapted-and-not-ported) |
 | `netstats` | `netstats.NewConn`, `NewConnWith`, `NewListener`, `NewListenerWith`, `NewHandler`, `NewHandlerWith` and the `Handler` interface; totals are flushed in batches, see [netstats](#netstats) and [Adapted and not ported](#adapted-and-not-ported) |
@@ -791,7 +791,7 @@ This library ports the features of [segmentio/stats](https://github.com/segmenti
 | `procstats` Go and Proc metrics | `stats.WithRuntimeMetrics()` (memstats-style) and `stats.WithRuntimeProcessMetrics()` (Linux and Darwin), a subset of the segmentio measurements, see [Adapted and not ported](#adapted-and-not-ported) and [docs/runtime_metrics.md](docs/runtime_metrics.md) |
 | `procstats` Delay metrics | Linux taskstats, see [docs/runtime_metrics.md](docs/runtime_metrics.md#delay-metrics-linux-opt-in) |
 | `statstest` | `statstest.Exporter` (captures metrics, `Clear`, `FlushCalls`) and `statstest.DogStatsDServer` (from `datadog.ListenAndServe` and `Serve`) |
-| `debugstats` | `debugstats.Exporter{Dst io.Writer, Grep *regexp.Regexp}` |
+| `debugstats` | `debugstats.Exporter{Dst io.Writer, Grep *regexp.Regexp}`, with `Exporter.Write` for raw writes |
 | `datadog` | `stats.WithDatadog` with `Endpoint` (`udp://`, `unixgram://`), `BufferSize` (max 65507), `Filters` (default `http_req_path`), `UseDistributions`, `DistributionPrefixes`, and `(*Client).Event(ctx, DatadogEvent)` |
 | `prometheus` (pull handler) | `prometheus.Handler` (an `http.Handler`) and `stats.WithPrometheusHandler(h)` |
 | `otlp` `SDKConfig` | `OTEL_*` environment configuration, `stats.WithOTLPFromEnv()`, `stats.WithOTLPExportInterval`, `stats.WithOTLPExportTimeout`, `stats.WithExponentialHistogram(maxSize, maxScale)`; TLS and mTLS, HTTP client and gRPC dial option escape hatches and automatic resource detection, see [Adapted and not ported](#adapted-and-not-ported) |
@@ -806,7 +806,8 @@ Everything else in segmentio/stats v5.11.0 is listed here. "Mapped" means a usab
 | `Engine.Incr`, `Add`, `Set`, `Observe(value)` | Mapped | `Increment`, `IncrementBy`, `Counter`, `Gauge` and `Histogram` on `*Client` (context first, error returned). Numeric `Observe(value)` is `Histogram`; `Client.Observe` takes only a `time.Duration` |
 | `IncrAt`, `AddAt`, `SetAt`, `ObserveAt` | Mapped | The same methods with `stats.WithTimestamp(t)`; `ReportAt` for structs |
 | `Tag`, `T`, `M` | Mapped | `attribute.KeyValue` values, `stats.WithAttribute(key, value)` and `stats.WithAttributes(map[string]string)` |
-| Duplicate tag keys with different values (`AllowDuplicateTags`) | Adapted | Duplicate keys collapse and the later value wins, so the same key cannot be sent twice with different values |
+| Duplicate tag keys with different values (`AllowDuplicateTags`) | Adapted | Duplicate keys collapse and the later value wins, so the same key cannot be sent twice with different values. There is no opt-in: the pipeline canonicalizes every metric's attributes with `attribute.NewSet` (sorted, one value per key, at most 10 keys) for the cardinality guard, and the OTLP and Prometheus exporters aggregate by `attribute.Set`, which cannot hold a key twice |
+| `SortTags`, `TagsAreSorted`, `Tag.String` | Not ported | Attributes are `attribute.KeyValue` values; `attribute.NewSet` sorts and de-duplicates them, so there is nothing to sort by hand |
 | `DefaultEngine`, package-level `stats.Incr` and friends, `Register` | Not ported | Create a `*Client` and pass it (or a `Recorder`) around. Only `httpstats` and `netstats` keep a package default, set with `SetDefaultRecorder` |
 | `Measure`, `Field`, `MakeMeasures`, `Measure.Clone` | Not ported | `Report` records straight through a `Recorder`; there is no way to extract reusable measures. Recorded values are flattened `models.Metric` values |
 | `HistogramBuckets.SetUnprefixed` and suffix lookup | Not ported | Bucket registration matches exact metric names only (`WithHistogramBucketsFor`), so register the full name including any prefix |
@@ -816,6 +817,20 @@ Everything else in segmentio/stats v5.11.0 is listed here. "Mapped" means a usab
 | `httpstats` header-count and header-byte histograms, error counter | Mapped | `http.{server,client}.{request,response}.header.{count,size}` histograms and the `http.{server,client}.error.count` counter |
 | `httpstats` request and response message counts | Not ported | Redundant: the sample count of the duration histogram is the number of requests, so no `request.count` or `response.count` is recorded |
 | `httpstats` content type, charset, encoding, host and `http_req_path` tags | Adapted | Standard OTel attributes instead (`http.request.method`, `http.response.status_code`, `url.scheme`, `http.route`, ...). Content type (without parameters, so no charset), content encoding and transfer encoding are available with `httpstats.WithContentAttributes()`. Paths and URLs are never recorded |
+| `Measure`, `Field`, `MakeMeasures`, `Measure.Clone` | Not ported | `Report` records straight through a `Recorder`; there is no way to extract reusable measures. Recorded values are flattened `models.Metric` values |
+| `HistogramBuckets.SetUnprefixed` and suffix lookup | Not ported | Bucket registration matches exact metric names only (`WithHistogramBucketsFor`), so register the full name including any prefix |
+| Writer-backed `Buffer` and `BufferPoolSize` | Not ported | Exporters serialize and batch for themselves; there is no standalone buffer for a custom `io.Writer` |
+| `version` package (`Version`, `GoVersion`, `DevelGoVersion`) | Not ported | Only the `stats_version` and `go_version` gauges exist; no public helpers |
+| `on` as a value of `STATS_DISABLE_GO_VERSION_REPORTING` | Adapted | Only `true`, `TRUE`, `yes` and `1` disable version reporting; `on` has no effect |
+| `httpstats` header-count and header-byte histograms, request and response message counts, error counter | Not ported | Only duration, request and response body size and active requests are recorded. A failure shows as the `error.type` attribute, not as a counter |
+| `httpstats` content type, charset, encoding, host and `http_req_path` tags | Adapted | Standard OTel attributes instead (`http.request.method`, `http.response.status_code`, `url.scheme`, `http.route`, ...). Paths and URLs are never recorded |
+| `Measure`, `Field`, `MakeMeasures`, `Measure.Clone` | Adapted | `stats.MakeMetrics(v, opts...)` converts a struct to `[]*models.Metric` (name, type, value, attributes) with `Report`'s tag rules and without recording; the metrics are plain, unpooled values and `(*models.Metric).Clone()` copies one. A measure has one name and many fields in segmentio; here every field is its own metric |
+| `HistogramBuckets.SetUnprefixed` and suffix lookup | Mapped | `stats.WithUnprefixedHistogramBucketsFor(name, bounds...)`: bounds for `request.duration` also serve `myapp.request.duration`. Lookup order: exact `WithHistogramBucketsFor` entry, longest matching suffix (split at `.`), `WithHistogramBuckets`, defaults. Plain `WithHistogramBucketsFor` entries stay exact-only. OTLP and Prometheus share it through `models.BucketsFor` |
+| Writer-backed `Buffer` and `BufferPoolSize` | Adapted | `exporters.Buffer{Dst, Serializer, BufferSize, BufferPoolSize}` serializes `*models.Metric` batches with any `exporters.Serializer` into pooled buffers and writes them to `Dst` at `BufferSize` (default 1024; `BufferPoolSize` defaults to 2 x `GOMAXPROCS`), newline-terminated. `Handle` and `Flush` are explicit, and it is also a `models.Exporter` |
+| `version` package (`Version`, `GoVersion`, `DevelGoVersion`) | Mapped | Package `version`: `Version()` is the module version from the build info (`(devel)` when unknown, unlike the constant in segmentio), `GoVersion()` is `runtime.Version()` without the `go` prefix, `DevelGoVersion()` reports tip toolchains. The version gauges use it |
+| `on` as a value of `STATS_DISABLE_GO_VERSION_REPORTING` | Mapped | `true`, `TRUE`, `yes`, `1` and `on` disable version reporting |
+| `httpstats` header-count and header-byte histograms, request and response message counts, error counter | Not ported | Only duration, request and response body size and active requests are recorded. A failure shows as the `error.type` attribute, not as a counter |
+| `httpstats` content type, charset, encoding, host and `http_req_path` tags | Adapted | Standard OTel attributes instead (`http.request.method`, `http.response.status_code`, `url.scheme`, `http.route`, ...). Paths and URLs are never recorded |
 | `netstats` byte histograms of each `Read` and `Write` | Adapted | One observation per flush, a total, not a per-call size (see [netstats](#netstats)) |
 | `netstats.BaseConn` | Mapped | `netstats.BaseConn` is an interface (`net.Conn` plus `BaseConn() net.Conn`) that the wrapped connection implements |
 | `netstats` errors of `SetDeadline`, `SetReadDeadline`, `SetWriteDeadline` | Mapped | Failures are counted in `conn.error.count` with `operation` `set-deadline`, `set-read-deadline` or `set-write-deadline` |
@@ -854,6 +869,10 @@ Everything else in segmentio/stats v5.11.0 is listed here. "Mapped" means a usab
 | `otlp` custom temporality and aggregation selectors | Not ported | Temporality is one setting (`cumulative` or `delta`) and histograms are explicit or exponential; there is no per-instrument selector |
 | `debugstats.Client.Write` | Not ported | `debugstats.Exporter` writes through the pipeline only |
 | `datadog` metric and event `String` and `Format` | Not ported | `statstest.DogStatsDMetric` and `DogStatsDEvent` only parse what the test server receives |
+| `debugstats.Client.Write` | Not ported | `debugstats.Exporter` writes through the pipeline only |
+| `datadog` metric and event `String` and `Format` | Not ported | `statstest.DogStatsDMetric` and `DogStatsDEvent` only parse what the test server receives |
+| `debugstats.Client.Write` | Mapped | `debugstats.Exporter.Write(p)` writes raw bytes to `Dst` (or stdout), serialized with `Export` |
+| `datadog` metric and event `String` and `Format` | Adapted | `statstest.DogStatsDMetric` and `DogStatsDEvent` have `String()` and `Format` that render the DogStatsD wire line, matching what the test server parses. There is no public `datadog` metric or event type; the serializer is internal to the exporter |
 | `cmd/dogstatsd` | Not ported | `statstest.DogStatsDServer` is a library server, there is no command line tool |
 | `grafana`, `grafana/grafanatest` | Not ported | No counterpart |
 | `util/objconv` and its `json`, `objutil` and `objtests` packages | Not ported | No counterpart |

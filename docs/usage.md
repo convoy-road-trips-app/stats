@@ -201,7 +201,7 @@ Options are passed to `stats.NewClient`. Defaults are those of `stats.DefaultCon
 | `WithRuntimeMetrics()` | off | Go runtime metrics every 10 s, see [runtime_metrics.md](runtime_metrics.md) |
 | `WithRuntimeProcessMetrics()` | off | implies `WithRuntimeMetrics()`; adds process metrics on Linux and Darwin |
 | `WithExporter(e)` | none | registers a custom `stats.Exporter` next to the built-in backends; it needs a unique `Name()` (`ErrInvalidConfig` otherwise) and is shut down on `Close` |
-| `WithVersionReporting(bool)` | on | the `stats_version` and `go_version` gauges (value 1, tagged with service and environment); `STATS_DISABLE_GO_VERSION_REPORTING=true\|TRUE\|yes\|1` turns them off, and the option wins over the variable |
+| `WithVersionReporting(bool)` | on | the `stats_version` and `go_version` gauges (value 1, tagged with service and environment); `STATS_DISABLE_GO_VERSION_REPORTING=true\|TRUE\|yes\|1\|on` turns them off, and the option wins over the variable |
 
 Exporters that speak a UDP or Unix datagram protocol can embed `exporters.BaseExporter` (`exporters.NewBaseExporter(name, address, serializer)`, or `exporters.NewBaseExporterNetwork(name, network, address, serializer)` with `"udp"` or `"unixgram"`), which adds a connection pool and circuit breaker; `SendPackets(ctx, packets, count)` sends already serialized datagrams through them, and `Stats()` returns `exporters.ExporterStats`. `datadog.NewExporter(cfg)` builds the Datadog exporter directly.
 
@@ -218,6 +218,7 @@ Exporters that speak a UDP or Unix datagram protocol can embed `exporters.BaseEx
 | `WithOTLPExportTimeout(d)` | 10 s | per-export deadline; beats `OTEL_EXPORTER_OTLP_TIMEOUT` |
 | `WithHistogramBuckets([]float64)` | `0.005 ... 10` | explicit bounds in the metric's unit; finite and strictly increasing |
 | `WithHistogramBucketsFor(name, bounds...)` | none | explicit bounds for one metric name, overriding the global bounds; shared by the OTLP exporter and the Prometheus pull handler |
+| `WithUnprefixedHistogramBucketsFor(name, bounds...)` | none | like `WithHistogramBucketsFor`, but also matches names that end in `.name` under any client prefix; an exact entry wins, then the longest matching suffix |
 | `WithExponentialHistogram(maxSize, maxScale)` | off | base-2 exponential histograms, see below |
 | `WithOTLPRetry(initial, max, maxElapsed)` | SDK default | retry retryable failures |
 | `WithOTLPTLSConfig(*tls.Config)` | system roots, TLS 1.2 minimum | base TLS configuration of a secure connection, HTTP and gRPC (cloned; a zero `MinVersion` becomes TLS 1.2). `OTLPConfig.TLSConfig` is the same field |
@@ -308,7 +309,7 @@ Supported variables:
 | `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` | `cumulative`, `delta` or `lowmemory`. `lowmemory` (delta counters and histograms, cumulative up-down counters) is exported as `delta`, because every sum this library exports is a monotonic counter and up-down counters are exported as gauges |
 | `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` | `explicit_bucket_histogram` (default) or `base2_exponential_bucket_histogram`, which is `WithExponentialHistogram(0, 0)` (160 buckets, scale 20). `WithExponentialHistogram`, or explicit buckets from `WithHistogramBuckets`, win over it. Only the `_METRICS_` form exists |
 | `OTEL_METRIC_EXPORT_INTERVAL` | pipeline flush interval, a positive whole number of milliseconds; `WithFlushInterval` and `WithOTLPExportInterval` win |
-| `STATS_DISABLE_GO_VERSION_REPORTING` | `true`, `TRUE`, `yes` or `1` turns off the version gauges; `WithVersionReporting` wins |
+| `STATS_DISABLE_GO_VERSION_REPORTING` | `true`, `TRUE`, `yes`, `1` or `on` turns off the version gauges; `WithVersionReporting` wins |
 
 The certificate variables follow the same explicit-resolution rule as the rest: the library reads them into `OTLPConfig.CAFile`, `ClientCertFile` and `ClientKeyFile`, loads the files itself and hands the resulting `tls.Config` to the SDK exporter, which never reads the variables. A missing or malformed file makes `NewClient` fail; they are ignored for an insecure connection. Because `WithOTLP(&OTLPConfig{...})` states every field, a `WithOTLP` struct without `CAFile` ignores `OTEL_EXPORTER_OTLP_CERTIFICATE`; use `WithOTLPFromEnv()` plus `WithOTLPCertificates` to mix.
 

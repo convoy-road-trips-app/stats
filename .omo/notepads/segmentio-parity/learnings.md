@@ -73,3 +73,9 @@ Conventions, patterns, and successful approaches discovered during work on this 
 - Resource detection uses `resource.New` with host, PID, runtime name/version/description and telemetry SDK detectors, cached in a `sync.OnceValue`; command args, owner and executable path are left out (secrets). Tests that asserted exact resource attribute sets now count `detectedAttributes()` or filter the detected keys.
 - `lowmemory` == `delta` for this library: all sums are monotonic counters and up-down counters are exported as gauges, so no new `Temporality` value was added.
 - `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` has no generic form in the spec, so it is read through `envValue`, not `signalEnv`; it does not override stated `WithExponentialHistogram` or `WithHistogramBuckets`.
+
+## gap-core-api
+- Unprefixed bucket registrations are stored in the same `byName` map under `models.UnprefixedBucketsPrefix` ("*.") + name, as segmentio does, so the OTLP merge, validation and Prometheus copy needed no change. `models.BucketsFor` order: exact, longest "." suffix, global, default.
+- `MakeMetrics` reuses `Report` through a private `valueRecorder` (Counter/Gauge/Histogram subset of `Recorder`), so the two cannot drift. `Recorder` itself is unchanged.
+- `AllowDuplicateTags` cannot be added: `cardinality.go` canonicalizes with `attribute.NewSet` for every metric and OTLP/Prometheus aggregate by `attribute.Set`.
+- On macOS use perl -pi, not `sed -i` without a suffix argument.
