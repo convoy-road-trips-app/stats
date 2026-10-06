@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/convoy-road-trips-app/stats/models"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // DogStatsDSerializer serializes metrics to Datadog DogStatsD format
@@ -89,33 +90,7 @@ func (s *DogStatsDSerializer) Serialize(metrics []*models.Metric) ([][]byte, err
 		// Format: metric.name:value|type
 		fmt.Fprintf(buf, "%s:%g|%s", metric.Name, metric.Value, s.metricType(metric))
 
-		// Add tags if present. Global tags come first, then metric attributes;
-		// filtered tags are skipped without leaving stray separators.
-		wrote := false
-		writeSep := func() {
-			if wrote {
-				buf.WriteByte(',')
-			} else {
-				buf.WriteString("|#")
-				wrote = true
-			}
-		}
-		for _, tag := range s.globalTags {
-			if s.filtered(globalTagKey(tag)) {
-				continue
-			}
-			writeSep()
-			buf.WriteString(tag)
-		}
-		for _, attr := range metric.Attributes {
-			key := string(attr.Key)
-			if s.filtered(key) {
-				continue
-			}
-			writeSep()
-			// Emit keeps the established wire format for slice values, which String changes.
-			fmt.Fprintf(buf, "%s:%s", key, attr.Value.Emit()) //nolint:staticcheck // SA1019: output format must not change
-		}
+		s.writeTags(buf, metric.Attributes)
 
 		// Make a copy since we're returning the buffer to the pool
 		packet := make([]byte, buf.Len())
@@ -174,4 +149,34 @@ func (s *DogStatsDSerializer) filtered(key string) bool {
 func globalTagKey(tag string) string {
 	key, _, _ := strings.Cut(tag, ":")
 	return key
+}
+
+// writeTags appends "|#tag,..." to buf: global tags first, then attrs, with
+// filtered tags skipped and no section written when nothing survives.
+func (s *DogStatsDSerializer) writeTags(buf *bytes.Buffer, attrs []attribute.KeyValue) {
+	wrote := false
+	writeSep := func() {
+		if wrote {
+			buf.WriteByte(',')
+		} else {
+			buf.WriteString("|#")
+			wrote = true
+		}
+	}
+	for _, tag := range s.globalTags {
+		if s.filtered(globalTagKey(tag)) {
+			continue
+		}
+		writeSep()
+		buf.WriteString(tag)
+	}
+	for _, attr := range attrs {
+		key := string(attr.Key)
+		if s.filtered(key) {
+			continue
+		}
+		writeSep()
+		// Emit keeps the established wire format for slice values, which String changes.
+		fmt.Fprintf(buf, "%s:%s", key, attr.Value.Emit()) //nolint:staticcheck // SA1019: output format must not change
+	}
 }
