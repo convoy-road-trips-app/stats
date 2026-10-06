@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/convoy-road-trips-app/stats/models"
+	"github.com/convoy-road-trips-app/stats/runtimemetrics/procfs"
 )
 
 func fixture(t *testing.T, name string) []byte {
@@ -25,6 +26,9 @@ type fakeFS struct {
 	files map[string][]byte
 	errs  map[string]error
 	fds   int
+
+	cpu    procfs.CPUConfig
+	cpuErr error
 }
 
 func (f *fakeFS) source() *processSource {
@@ -40,6 +44,11 @@ func (f *fakeFS) source() *processSource {
 				return nil, os.ErrNotExist
 			}
 			return b, nil
+		},
+		cpuConfig: func() (procfs.CPUConfig, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			return f.cpu, f.cpuErr
 		},
 		countDir: func(path string) (int, error) {
 			f.mu.Lock()
@@ -63,6 +72,7 @@ func newFakeFS(t *testing.T) *fakeFS {
 		files: map[string][]byte{
 			procStatPath:    td("proc_stat_parens.txt"),
 			procStatusPath:  td("proc_status.txt"),
+			procStatmPath:   td("proc_statm.txt"),
 			procLimitsPath:  td("proc_limits.txt"),
 			procMeminfoPath: td("proc_meminfo.txt"),
 			cgroupMemoryMax: td("cgroup_memory_max_max.txt"),

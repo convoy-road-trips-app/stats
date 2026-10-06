@@ -2,7 +2,11 @@
 
 package runtimemetrics
 
-import "os"
+import (
+	"os"
+
+	"github.com/convoy-road-trips-app/stats/runtimemetrics/procfs"
+)
 
 // newPlatformProcessState returns the process metrics state reading the real
 // /proc and /sys files.
@@ -15,6 +19,9 @@ func newProcessSource() *processSource {
 	return &processSource{
 		readFile: os.ReadFile,
 		countDir: countDirEntries,
+		cpuConfig: func() (procfs.CPUConfig, error) {
+			return procfs.Default.ReadCPUConfig(os.Getpid())
+		},
 	}
 }
 

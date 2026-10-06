@@ -34,7 +34,8 @@ func newDarwinProcessState(read rusageReader) *processState {
 // collectRusage emits the process metrics getrusage(2) provides:
 //
 //   - cpu.usage.seconds{type=user|system} from ru_utime/ru_stime
-//   - cpu.usage.percent, derived (not emitted on the first sample)
+//   - cpu.usage_total.seconds and the percent series, derived (the percents are
+//     not emitted on the first sample)
 //   - memory.usage.bytes{type=resident} from ru_maxrss
 //   - memory.pagefault.count{type=major|minor} from ru_majflt/ru_minflt
 //   - threads.switch.count{type=voluntary|involuntary} from ru_nvcsw/ru_nivcsw
@@ -53,15 +54,12 @@ func (c *Collector) collectRusage(read rusageReader) {
 
 	user := timevalSeconds(ru.Utime)
 	system := timevalSeconds(ru.Stime)
-	c.gauge("cpu.usage.seconds", user, typeAttr("user"))
-	c.gauge("cpu.usage.seconds", system, typeAttr("system"))
+	c.emitCPU(user, system)
 	c.gauge("memory.usage.bytes", float64(ru.Maxrss), typeAttr("resident"))
 	c.gauge("memory.pagefault.count", float64(ru.Majflt), typeAttr("major"))
 	c.gauge("memory.pagefault.count", float64(ru.Minflt), typeAttr("minor"))
 	c.gauge("threads.switch.count", float64(ru.Nvcsw), typeAttr("voluntary"))
 	c.gauge("threads.switch.count", float64(ru.Nivcsw), typeAttr("involuntary"))
-
-	c.emitCPUPercent(user + system)
 }
 
 func timevalSeconds(tv syscall.Timeval) float64 {

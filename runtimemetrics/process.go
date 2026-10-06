@@ -3,7 +3,6 @@ package runtimemetrics
 import (
 	"errors"
 	"fmt"
-	"runtime"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -18,6 +17,7 @@ const (
 	procStatusPath  = "/proc/self/status"
 	procLimitsPath  = "/proc/self/limits"
 	procMeminfoPath = "/proc/meminfo"
+	procStatmPath   = "/proc/self/statm"
 	procFDDir       = "/proc/self/fd"
 	cgroupMemoryMax = "/sys/fs/cgroup/memory.max"
 )
@@ -36,6 +36,9 @@ type processSource struct {
 	readFile func(path string) ([]byte, error)
 	// countDir returns the number of entries in the directory at path.
 	countDir func(path string) (int, error)
+	// cpuConfig returns the cgroup CPU configuration of the process. It may be
+	// nil, which disables the cgroup metrics.
+	cpuConfig func() (procfs.CPUConfig, error)
 }
 
 // processState holds the state process metrics keep between collections.
@@ -47,11 +50,20 @@ type processState struct {
 	collect func(c *Collector)
 	now     func() time.Time
 
-	// prevCPU is the previous total CPU time in seconds, taken at prevWall.
-	// havePrev is false until the first successful sample.
-	prevCPU  float64
-	prevWall time.Time
-	havePrev bool
+	// prevUser, prevSys and prevCPU are the previous user, system and total CPU
+	// seconds, taken at prevWall. havePrev is false until the first sample.
+	prevUser, prevSys, prevCPU float64
+	prevWall                   time.Time
+	havePrev                   bool
+
+	// cores is the CPU capacity the new percent series are relative to: the
+	// cgroup quota in cores, or 0 for GOMAXPROCS. Refreshed every collection.
+	cores float64
+
+	// resident and total are this collection's resident size and memory
+	// capacity in bytes; haveResident and haveTotal say whether they were read.
+	resident, total         uint64
+	haveResident, haveTotal bool
 
 	// reported records the sources already passed to OnError.
 	reported map[string]bool
@@ -92,11 +104,15 @@ func (c *Collector) collectProcess() {
 
 // collectProcfs emits the process metrics read from /proc and /sys.
 func (c *Collector) collectProcfs() {
+	c.proc.haveResident, c.proc.haveTotal = false, false
+	c.collectCgroupCPU()
 	c.collectProcStat()
 	c.collectProcStatus()
+	c.collectStatm()
 	c.collectLimits()
 	c.collectFDCount()
 	c.collectSystemMemory()
+	c.emitResidentPercent()
 }
 
 func (c *Collector) gauge(name string, value float64, attrs ...attribute.KeyValue) {
@@ -118,29 +134,10 @@ func (c *Collector) collectProcStat() {
 
 	user := float64(st.Utime) / clockTicksPerSecond
 	system := float64(st.Stime) / clockTicksPerSecond
-	c.gauge("cpu.usage.seconds", user, typeAttr("user"))
-	c.gauge("cpu.usage.seconds", system, typeAttr("system"))
+	c.emitCPU(user, system)
 	c.gauge("memory.pagefault.count", float64(st.Majflt), typeAttr("major"))
 	c.gauge("memory.pagefault.count", float64(st.Minflt), typeAttr("minor"))
 	c.gauge("threads.count", float64(st.NumThreads))
-
-	c.emitCPUPercent(user + system)
-}
-
-// emitCPUPercent emits cpu.usage.percent from the total CPU seconds consumed
-// so far: delta CPU / delta wall / GOMAXPROCS * 100. The first sample only
-// records the baseline and emits nothing; a decreasing total is skipped.
-func (c *Collector) emitCPUPercent(total float64) {
-	p := c.proc
-	now := p.now()
-	if p.havePrev {
-		wall := now.Sub(p.prevWall).Seconds()
-		if wall > 0 && total >= p.prevCPU {
-			pct := (total - p.prevCPU) / wall / float64(runtime.GOMAXPROCS(0)) * 100
-			c.gauge("cpu.usage.percent", pct)
-		}
-	}
-	p.prevCPU, p.prevWall, p.havePrev = total, now, true
 }
 
 func (c *Collector) collectProcStatus() {
@@ -153,6 +150,7 @@ func (c *Collector) collectProcStatus() {
 
 	if v, ok := kv["VmRSS"]; ok {
 		c.gauge("memory.usage.bytes", float64(v), typeAttr("resident"))
+		c.proc.resident, c.proc.haveResident = v, true
 	}
 	file, hasFile := kv["RssFile"]
 	shmem, hasShmem := kv["RssShmem"]
@@ -224,4 +222,5 @@ func (c *Collector) collectSystemMemory() {
 		}
 	}
 	c.gauge("memory.total.bytes", float64(total))
+	c.proc.total, c.proc.haveTotal = total, true
 }

@@ -155,3 +155,38 @@ func TestDarwinProcessRusageErrorReportedOnce(t *testing.T) {
 	assert.False(t, rec.hasPrefix("runtime.go.memory.usage"))
 	assert.True(t, rec.hasPrefix("runtime.go.goroutines"), "regular metrics still emitted")
 }
+
+func TestDarwinProcessTotalAndSplitCPU(t *testing.T) {
+	rec := &recorder{}
+	user, system := 3*time.Second, time.Second
+	read := func(ru *syscall.Rusage) error { return fakeRusage(user, system)(ru) }
+	c := darwinCollector(read, rec, nil)
+	now := time.Unix(1000, 0)
+	c.proc.now = func() time.Time { return now }
+
+	c.Collect()
+	total, ok := rec.get("runtime.go.cpu.usage_total.seconds", "")
+	require.True(t, ok)
+	assert.InDelta(t, 4.0, total, 1e-6)
+	_, ok = rec.get("runtime.go.cpu.usage_total.percent", "")
+	assert.False(t, ok, "first sample must be skipped")
+
+	user += 600 * time.Millisecond
+	system += 400 * time.Millisecond
+	now = now.Add(2 * time.Second)
+	rec.reset()
+	c.Collect()
+
+	gomax := float64(runtime.GOMAXPROCS(0))
+	for name, want := range map[string]float64{
+		"cpu.usage_user.percent":   0.6 / 2 / gomax * 100,
+		"cpu.usage_system.percent": 0.4 / 2 / gomax * 100,
+		"cpu.usage_total.percent":  1.0 / 2 / gomax * 100,
+	} {
+		got, ok := rec.get("runtime.go."+name, "")
+		require.True(t, ok, name)
+		assert.InDelta(t, want, got, 1e-6, name)
+	}
+	assert.False(t, rec.hasPrefix("runtime.go.cpu.cgroup"), "cgroups are Linux only")
+	assert.False(t, rec.hasPrefix("runtime.go.memory.virtual"), "rusage has no virtual size")
+}
