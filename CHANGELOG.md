@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.4.0] - Unreleased
+## [1.4.0] - 2026-10-07
 
 segmentio/stats parity release. It ports the features of segmentio/stats v5.11.0 that are listed in the [migration tables](README.md#migrating-from-segmentiostats) onto the existing pipeline, with OpenTelemetry semantics. It is not a drop-in replacement: the "Not ported" rows in those tables list what is left out, including `influxdb`, `veneur`, the deprecated custom `otlp.Handler`, `grafana`, `util/objconv`, `cmd/dogstatsd` and parts of `httpstats`, `netstats`, `procstats` and the OTLP configuration. The Go API only gains symbols: `Recorder` and `Timing` are unchanged.
 
@@ -49,6 +49,7 @@ segmentio/stats parity release. It ports the features of segmentio/stats v5.11.0
 - **Version reporting**: the first successful record on a root client also records the gauges `stats_version` (the module version of this library, or `(devel)`) and `go_version` (`runtime.Version()`, skipped for `devel` toolchains), each with value 1 and tagged with `service` and `environment` only. This adds two series per process, and tests that count exported metrics see two extra observations. Disable both with `WithVersionReporting(false)` or `STATS_DISABLE_GO_VERSION_REPORTING=true|TRUE|yes|1|on`; the option wins over the environment. `statstest.NewClient` disables reporting by default.
 
 ### Fixed
+- `memory.heap.inuse` and `memory.heap.idle` runtime metrics were never emitted (their `runtime/metrics` sources do not exist); they are now derived as objects + unused and free + released.
 
 - **OTLP transport settings are always the ones this library resolved**: the SDK exporters read `OTEL_EXPORTER_OTLP_*` themselves before our options ran, so a stray `OTEL_EXPORTER_OTLP_CERTIFICATE` could break an insecure endpoint and environment headers or compression could leak into an explicitly configured exporter. The endpoint (including its path), TLS mode, headers, timeout and compression are now passed explicitly. `OTEL_EXPORTER_OTLP_CERTIFICATE`, the `*_CLIENT_*` variables and the histogram aggregation variable are read by this library (see Added), never by the SDK exporters. An `http://` endpoint URL implies an insecure connection.
 - **Shared metrics are no longer mutated by the OTLP and Prometheus exporters**: attribute sets are built from a clone of the metric's attributes, because `attribute.NewSet` sorts its input in place and exporters run in parallel on shared batches.
@@ -192,7 +193,7 @@ A v2 release would need the module path `github.com/convoy-road-trips-app/stats/
 
 See [README.md](README.md) for installation and quick start guide.
 
-[1.4.0]: https://github.com/convoy-road-trips-app/stats/compare/v1.3.0...HEAD
+[1.4.0]: https://github.com/convoy-road-trips-app/stats/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/convoy-road-trips-app/stats/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/convoy-road-trips-app/stats/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/convoy-road-trips-app/stats/compare/v1.2.0...v1.2.1
