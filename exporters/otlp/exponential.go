@@ -129,14 +129,23 @@ func (h *expoHistogram) record(v float64) {
 // recordBucket counts magnitude m into b, first lowering the scale of both
 // ranges if b would otherwise exceed maxSize buckets.
 func (h *expoHistogram) recordBucket(b *expoBuckets, m float64) {
-	index := expoIndex(m, h.scale)
+	h.addCount(b, expoIndex(m, h.scale), 1)
+}
+
+// addCount adds count to the bucket index (at the current scale) of b, first
+// lowering the scale of both ranges if b would otherwise exceed maxSize
+// buckets. A zero count is ignored.
+func (h *expoHistogram) addCount(b *expoBuckets, index int, count uint64) {
+	if count == 0 {
+		return
+	}
 	if change := h.scaleChange(b, index); change > 0 {
 		h.scale -= change
 		h.positive.downscale(change)
 		h.negative.downscale(change)
 		index >>= change
 	}
-	b.increment(index)
+	b.add(index, count)
 }
 
 // scaleChange returns by how much the scale must drop for b to hold index in
@@ -176,8 +185,8 @@ func (b *expoBuckets) downscale(change int32) {
 	b.counts = counts
 }
 
-// increment adds one to the bucket index, growing the range to include it.
-func (b *expoBuckets) increment(index int) {
+// add adds count to the bucket index, growing the range to include it.
+func (b *expoBuckets) add(index int, count uint64) {
 	switch {
 	case len(b.counts) == 0:
 		b.offset = index
@@ -190,7 +199,7 @@ func (b *expoBuckets) increment(index int) {
 	case index >= b.offset+len(b.counts):
 		b.counts = append(b.counts, make([]uint64, index-b.offset-len(b.counts)+1)...)
 	}
-	b.counts[index-b.offset]++
+	b.counts[index-b.offset] += count
 }
 
 // snapshot returns the histogram as a data point with copied bucket counts,
