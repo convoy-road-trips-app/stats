@@ -158,8 +158,10 @@ func newHTTPExporter(config *models.OTLPConfig) (*otlpmetrichttp.Exporter, error
 	if err != nil {
 		return nil, err
 	}
-	var tlsConfig *tls.Config // an insecure endpoint ignores, and never reads, TLS settings
-	if !endpoint.insecure {
+	// An insecure endpoint ignores, and never reads, TLS settings; so does a
+	// custom HTTPClient, which owns TLS (see models.OTLPConfig.HTTPClient).
+	var tlsConfig *tls.Config
+	if !endpoint.insecure && config.HTTPClient == nil {
 		if tlsConfig, err = buildTLSConfig(config); err != nil {
 			return nil, err
 		}
@@ -184,6 +186,7 @@ func newHTTPExporter(config *models.OTLPConfig) (*otlpmetrichttp.Exporter, error
 		// (otlpmetrichttp/client.go:71-72). tls.Config.Clone(nil) is nil.
 		opts = append(opts, otlpmetrichttp.WithTLSClientConfig(nil))
 	} else {
+		// A nil config (custom HTTPClient) also clears TLS from the environment.
 		opts = append(opts, otlpmetrichttp.WithTLSClientConfig(tlsConfig))
 	}
 	if config.HTTPClient != nil {

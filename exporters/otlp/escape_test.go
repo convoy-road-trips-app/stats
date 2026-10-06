@@ -50,6 +50,18 @@ func TestHTTPClientUsedForSecureEndpointWithOwnTLS(t *testing.T) {
 	require.Equal(t, "yes", collector.received(t).Header.Get("X-Custom-Client"))
 }
 
+func TestHTTPClientSkipsTLSFilesItDoesNotOwn(t *testing.T) {
+	pki := newTestPKI(t)
+	collector := startTLSHTTPCollector(t, pki.serverTLS(false))
+	rt := &headerRoundTripper{next: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pki.CAPool, MinVersion: tls.VersionTLS12}}}
+
+	require.NoError(t, exportOneErr(&models.OTLPConfig{
+		Endpoint: collector.URL, Protocol: models.OTLPProtocolHTTP, HTTPClient: &http.Client{Transport: rt},
+		CAFile: "/nonexistent/ca.pem", ClientCertFile: "/nonexistent/client.pem", ClientKeyFile: "/nonexistent/client-key.pem",
+	}))
+	require.Equal(t, "yes", collector.received(t).Header.Get("X-Custom-Client"))
+}
+
 func TestGRPCDialOptionsEscapeHatchIsUsed(t *testing.T) {
 	collector, endpoint := startPlaintextGRPCCollector(t)
 	var calls atomic.Int32
