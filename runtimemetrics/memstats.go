@@ -51,6 +51,9 @@ func getDerivedMappings() []derivedMapping {
 		{"memory.buckhash.sys", []string{"/memory/classes/profiling/buckets:bytes"}, sumValues},
 		{"memory.gc.sys", []string{"/memory/classes/metadata/other:bytes"}, sumValues},
 		{"memory.other.sys", []string{"/memory/classes/other:bytes"}, sumValues},
+		// MemStats.HeapInuse = spans in use (objects + unused); HeapIdle = free + released.
+		{"memory.heap.inuse", []string{"/memory/classes/heap/objects:bytes", "/memory/classes/heap/unused:bytes"}, sumValues},
+		{"memory.heap.idle", []string{"/memory/classes/heap/free:bytes", "/memory/classes/heap/released:bytes"}, sumValues},
 		{"memory.alloc", []string{"/memory/classes/heap/objects:bytes"}, sumValues},
 		{"memory.heap.sys", []string{"/memory/classes/heap/objects:bytes", "/memory/classes/heap/unused:bytes", "/memory/classes/heap/free:bytes", "/memory/classes/heap/released:bytes"}, sumValues},
 		{"gc.cpu.fraction", []string{"/cpu/classes/gc/total:cpu-seconds", "/cpu/classes/total:cpu-seconds"}, fractionOf},

@@ -43,8 +43,6 @@ type metricMapping struct {
 func getMappings() []metricMapping {
 	return []metricMapping{
 		{"/memory/classes/heap/objects:bytes", []string{"memory.heap.alloc"}},
-		{"/memory/classes/heap/inuse:bytes", []string{"memory.heap.inuse"}},
-		{"/memory/classes/heap/idle:bytes", []string{"memory.heap.idle"}},
 		{"/memory/classes/heap/released:bytes", []string{"memory.heap.released"}},
 		{"/memory/classes/total:bytes", []string{"memory.sys"}},
 		{"/memory/classes/heap/stacks:bytes", []string{"memory.stack.inuse"}},

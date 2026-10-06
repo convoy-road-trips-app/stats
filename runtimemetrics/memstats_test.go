@@ -83,6 +83,9 @@ func TestExistingNamesUnchanged(t *testing.T) {
 			got[n] = m.runtimeName
 		}
 	}
+	for _, d := range getDerivedMappings() {
+		got[d.name] = "derived"
+	}
 	for _, n := range golden {
 		assert.Contains(t, got, n)
 	}
@@ -101,7 +104,7 @@ func TestExistingNamesUnchanged(t *testing.T) {
 	New(Config{Prefix: "rt"}, rec.fn).Collect()
 	assert.Contains(t, rec.vals, "rt.gomaxprocs")
 	for _, n := range golden {
-		if known[got[n]] {
+		if known[got[n]] || got[n] == "derived" {
 			assert.Contains(t, rec.vals, "rt."+n)
 		}
 	}
