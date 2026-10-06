@@ -191,9 +191,13 @@ func toResourceMetricsWithConfig(config *models.OTLPConfig, metrics []*models.Me
 
 // usesExponential reports whether the histogram name is exported as an
 // exponential histogram: config.ExponentialHistogram is set and the name has
-// no explicit buckets of its own.
+// no explicit buckets of its own, exact or by unprefixed suffix.
 func usesExponential(config *models.OTLPConfig, name string) bool {
-	return config.ExponentialHistogram != nil && len(config.BucketsByName[name]) == 0
+	if config.ExponentialHistogram == nil {
+		return false
+	}
+	_, named := models.NamedBuckets(config.BucketsByName, name)
+	return !named
 }
 
 // exponentialHistograms aggregates the observations of the histograms that

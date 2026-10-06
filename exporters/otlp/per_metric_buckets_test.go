@@ -73,3 +73,24 @@ func TestOTLPUnprefixedBucketsMatchBySuffix(t *testing.T) {
 	dp := wireMetric(t, <-received, "myapp.request.duration").GetHistogram().DataPoints[0]
 	require.Equal(t, []float64{1, 2}, dp.ExplicitBounds)
 }
+
+func TestOTLPUnprefixedBucketsBeatExponential(t *testing.T) {
+	exporter, received := wireExporter(t, &models.OTLPConfig{
+		ExponentialHistogram: &models.OTLPExponentialHistogram{},
+		BucketsByName:        map[string][]float64{models.UnprefixedBucketsKey("request.duration"): {1, 2}},
+	})
+	now := time.Now()
+
+	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
+		{Name: "myapp.request.duration", Type: models.MetricTypeHistogram, Value: 1.5, Timestamp: now},
+		{Name: "myapp.other", Type: models.MetricTypeHistogram, Value: 5, Timestamp: now},
+	}))
+
+	request := <-received
+	matched := wireMetric(t, request, "myapp.request.duration")
+	require.Nil(t, matched.GetExponentialHistogram())
+	require.Equal(t, []float64{1, 2}, matched.GetHistogram().GetDataPoints()[0].GetExplicitBounds())
+	other := wireMetric(t, request, "myapp.other")
+	require.Nil(t, other.GetHistogram())
+	require.Len(t, other.GetExponentialHistogram().GetDataPoints(), 1)
+}

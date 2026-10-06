@@ -230,16 +230,27 @@ func UnprefixedBucketsKey(name string) string {
 // A plain entry never matches by suffix: only entries registered as unprefixed
 // do. Bounds use the units the metric is recorded in.
 func BucketsFor(byName map[string][]float64, global []float64, name string) []float64 {
-	if bounds := byName[name]; len(bounds) > 0 {
-		return bounds
-	}
-	if bounds := unprefixedBuckets(byName, name); len(bounds) > 0 {
+	if bounds, ok := NamedBuckets(byName, name); ok {
 		return bounds
 	}
 	if len(global) > 0 {
 		return global
 	}
 	return DefaultHistogramBuckets()
+}
+
+// NamedBuckets returns the bounds registered for name in byName: the exact
+// entry, else the longest matching unprefixed entry (see BucketsFor). ok is
+// false when name has no registration, in which case callers fall back to
+// global bounds or another aggregation.
+func NamedBuckets(byName map[string][]float64, name string) (bounds []float64, ok bool) {
+	if bounds := byName[name]; len(bounds) > 0 {
+		return bounds, true
+	}
+	if bounds := unprefixedBuckets(byName, name); len(bounds) > 0 {
+		return bounds, true
+	}
+	return nil, false
 }
 
 // unprefixedBuckets resolves name against the unprefixed entries of byName,
