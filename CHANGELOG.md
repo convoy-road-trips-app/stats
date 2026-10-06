@@ -5,21 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.0] - Unreleased
+
+segmentio/stats parity release. It ports the public features of segmentio/stats v5.11.0 (except `influxdb`, `veneur` and the deprecated custom `otlp.Handler`) onto the existing pipeline, with OpenTelemetry semantics. The Go API only gains symbols: `Recorder` and `Timing` are unchanged. See the [migration table](README.md#migrating-from-segmentiostats).
+
+### Behavior changes
+
+- The Datadog exporter strips the tag `http_req_path` from every metric by default (`DatadogConfig.Filters`, as in segmentio). Set `Filters` to an empty, non-nil slice to keep every tag.
+- Two extra gauges, `stats_version` and `go_version`, are recorded once per process unless version reporting is turned off (see below).
 
 ### Added
 
+- **Custom exporters**: `stats.WithExporter(Exporter)` registers any `stats.Exporter` (an alias of `models.Exporter`) next to the built-in backends, with its own entry in `ExporterErrors` and a unique-name check (`ErrInvalidConfig`). `exporters.Multi(name, defaultTimeout, children...)` fans out to several exporters (concurrent, each bounded on its own, panics recovered) and `exporters.Filtered(e, filter)` passes a subset of each batch. Batches are shared between exporters, so exporters must not modify them.
+- **Context tags**: `stats.ContextWithTags`, `stats.ContextAddTags` and `stats.ContextTags` attach `attribute.KeyValue` tags to a context; every metric recorded with it carries them. Order of application: view tags, context tags, the metric's own attributes, explicit options. Tags pass the same key validation and cardinality limits as option tags, so use low-cardinality values and never request IDs.
+- **Sub-clients**: `(*Client).WithPrefix(prefix, opts...)` and `(*Client).WithTags(opts...)` return views that share the pipeline. `Close` and `Shutdown` on a view do nothing; `Flush` and `Stats` act on the root. `*NoOpClient` has the same methods.
+- **`Observe`**: `(*Client).Observe(ctx, name, time.Duration, ...MetricOption)` records a duration in seconds, with the optional `stats.DurationObserver` interface for code that holds a `Recorder`. `Timing` is unchanged and still records milliseconds.
+- **`Clock`**: `(*Client).Clock(name, opts...)`, `stats.NewClock`, `NewClockAt` and `Clock.Stamp`/`StampAt`/`Stop`/`StopAt` time sequential steps as one histogram in seconds with a `stamp` attribute (`stats.StampTag`, `stats.StampTotal`). `otel.NewClock` does the same for any `metric.Float64Histogram`.
+- **`Report`**: `stats.Report` and `stats.ReportAt` record structs described by `metric`, `type` and `tag` struct tags (bool, int, uint, float and `time.Duration` values, converted to `float64`, exact up to 2^53). An unsupported field returns `ErrUnsupportedReportField` before anything is recorded.
+- **Per-metric buckets**: `stats.WithHistogramBucketsFor(name, bounds...)` overrides the histogram bounds of one metric. The OTLP exporter and the Prometheus pull handler share the lookup.
+- **`OTEL_*` environment configuration**: `stats.WithOTLPFromEnv()` (and `otel.NewMeterProviderFromEnv`) read `OTEL_EXPORTER_OTLP_[METRICS_]{PROTOCOL,ENDPOINT,INSECURE,HEADERS,TIMEOUT,COMPRESSION}`, `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` and `OTEL_METRIC_EXPORT_INTERVAL`; `OTEL_SERVICE_NAME` and `OTEL_SDK_DISABLED` are read by every client. Explicit options win over the environment, which wins over defaults, and the environment alone never enables OTLP. `stats.WithOTLPExportInterval` and `stats.WithOTLPExportTimeout` set the interval and the timeout explicitly. Unsupported variables (`OTEL_EXPORTER_OTLP_CERTIFICATE`, the `CLIENT_*` variables, the histogram aggregation variable) have no effect. See `docs/usage.md`.
+- **Exponential histograms**: `stats.WithExponentialHistogram(maxSize, maxScale)` exports OTLP histograms as base-2 exponential histograms. Zero selects the default of either argument (160 buckets, scale 20), so scale 0 cannot be chosen, and a metric with its own bounds from `WithHistogramBucketsFor` keeps explicit buckets.
+- **Datadog**: `DatadogConfig.Endpoint` (`host:port`, `udp://` and `unixgram://` addresses), `BufferSize` (default 1432 for UDP and 8192 for unixgram, at most 65507; lines are batched into datagrams and never split, an oversized line is dropped and reported), `Filters` (default `http_req_path`), `UseDistributions` and `DistributionPrefixes` (matched against the whole metric name).
+- **Prometheus pull**: `exporters/prometheus.Handler` is an `http.Handler` with cumulative in-memory state (counters exposed as `_total`, histograms as `_bucket`/`_sum`/`_count`, series expiring after `MetricTimeout`, default 2 minutes), registered with `stats.WithPrometheusHandler`. It is independent of the StatsD push exporter, and both can run in one client.
+- **`httpstats`**: `NewHandler`, `NewHandlerWith`, `NewTransport`, `NewTransportWith`, `RequestWithTags`, `RequestTags` and `SetDefaultRecorder` record `http.server.*` and `http.client.*` metrics with the standard OTel names. `http.route` holds only the route template and is omitted when unset; paths and URLs are never recorded.
+- **`netstats`**: `NewConn`, `NewListener`, `NewHandler` (and the `...With` variants), the `Handler` interface, `WithZones`, `WithFlushInterval` and `SetDefaultRecorder` record `conn.*` metrics with the segmentio names. Unlike segmentio, read and write totals are batched per connection and flushed on close and every 10 seconds instead of being recorded on every call.
+- **`iostats`**: `CountReader`, `CountWriter`, `ReaderFunc`, `WriterFunc` and `CloserFunc`.
+- **`statstest`**: `NewClient(t, opts...)`, `Exporter` (`Metrics`, `Clear`, `FlushCalls`), `Flush(t, client)` and the DogStatsD test server (`DogStatsDServer`, `NewDogStatsDServer`, `ListenAndServeDogStatsD`, `ServeDogStatsD` and the handler and message types).
+- **`debugstats`**: `Exporter{Dst, Grep}` prints every metric as one StatsD-format line.
+- **Runtime metrics**: memstats-style `memory.*` and `gc.*` metrics derived from `runtime/metrics` (no stop-the-world), process metrics, and Linux taskstats delay metrics (`runtimemetrics.Get`, `DelayInfo`, `ParseTaskstatsReply`, `IsUnsupported`, and `WithRuntimeDelayMetrics()`). See `docs/runtime_metrics.md`.
+- **Documentation and examples**: README, `docs/usage.md`, `docs/otel_compliance.md` and `docs/runtime_metrics.md` cover the features above, and `examples/` gains `report`, `clock`, `httpstats`, `netstats`, `prometheus-pull` and `debugstats`.
 - **Datadog events**: `Client.Event(ctx, DatadogEvent)` sends a DogStatsD event straight over the Datadog connection (not through the metric buffer) within the UDP timeout. Tags are view tags, then context tags, then `ev.Tags` (the later wins), validated like metric tags (`ErrInvalidTagKey`), then filtered by the Datadog `Filters`. It returns `ErrDatadogNotConfigured` without a Datadog backend, `ErrEventTooLarge` above the Datadog `BufferSize`, `ErrClientClosed` after the root closes, and nil on a disabled client. Failures are returned and counted in the new `ClientStats.EventsDropped` and `Pipeline.ExporterErrors["datadog"]`. Views send through the root; the optional `EventSender` interface (implemented by `*Client` and `*NoOpClient`) lets code check for support, and the Datadog exporter gains `SendEvent`.
-||||||| parent of f9ce7da (feat: darwin process metrics)
 - **Darwin process metrics**: `WithRuntimeProcessMetrics()` now also works on macOS, reading `getrusage(RUSAGE_SELF)` with the standard library only. It emits `cpu.usage.seconds`, `cpu.usage.percent`, `memory.usage.bytes{type=resident}` (peak RSS, in bytes), `memory.pagefault.count` and `threads.switch.count` with the Linux names and attributes; fields rusage does not provide are not emitted. A failing call is counted once in `ExporterErrors["runtimemetrics.process"]`. Windows and other platforms still emit nothing. See `docs/runtime_metrics.md`.
 - **Linux process metrics**: `WithRuntimeProcessMetrics()` (implies `WithRuntimeMetrics()`) adds `cpu.usage.seconds`, `cpu.usage.percent`, `memory.usage.bytes`, `memory.available.bytes`, `memory.total.bytes`, `memory.pagefault.count`, `files.open.count`, `files.open.max`, `threads.count` and `threads.switch.count` under the runtime prefix, read from `/proc` (and cgroup v2 `memory.max`). Other platforms emit nothing. An unreadable source is skipped and counted once in `ExporterErrors["runtimemetrics.process"]`. See `docs/runtime_metrics.md`.
 - **`OTEL_SDK_DISABLED`**: when it is `true` (case-insensitive), `NewClient` and `otel.NewMeterProvider` start no pipeline, exporter or runtime collector and dial nothing. Every recording method (and views from `WithPrefix`/`WithTags`) does nothing and returns nil without validating input; `Flush`, `Shutdown` and `Close` return nil; `Stats()` returns a zero `ClientStats` with an empty `ExporterErrors` map; observable callbacks are never registered. `Client.Disabled()` reports the state.
 - **Version reporting**: the first successful record on a root client also records the gauges `stats_version` (the module version of this library, or `(devel)`) and `go_version` (`runtime.Version()`, skipped for `devel` toolchains), each with value 1 and tagged with `service` and `environment` only. This adds two series per process, and tests that count exported metrics see two extra observations. Disable both with `WithVersionReporting(false)` or `STATS_DISABLE_GO_VERSION_REPORTING=true|TRUE|yes|1`; the option wins over the environment. `statstest.NewClient` disables reporting by default.
-- **Default `service.instance.id` resource attribute**: OTLP exports now set `service.instance.id` to the hostname when neither `OTEL_RESOURCE_ATTRIBUTES` nor `WithOTLPResourceAttributes` provides one (a random hex ID if there is no hostname). Previously replicas of one service exported identical series, so cumulative counters from different processes interleaved as false resets and gauges flapped between replicas. Prometheus-compatible backends receive it as the `instance` label, so expect one series per replica; aggregate with `sum`/`max` across `instance`. To opt out, set `service.instance.id` explicitly (for example `OTEL_RESOURCE_ATTRIBUTES=service.instance.id=<name>`).
 
 ### Fixed
 
 - **OTLP transport settings are always the ones this library resolved**: the SDK exporters read `OTEL_EXPORTER_OTLP_*` themselves before our options ran, so a stray `OTEL_EXPORTER_OTLP_CERTIFICATE` could break an insecure endpoint and environment headers or compression could leak into an explicitly configured exporter. The endpoint (including its path), TLS mode, headers, timeout and compression are now passed explicitly. `OTEL_EXPORTER_OTLP_CERTIFICATE`, the `*_CLIENT_*` variables and the histogram aggregation variable are unsupported and have no effect. An `http://` endpoint URL implies an insecure connection.
+- **Shared metrics are no longer mutated by the OTLP and Prometheus exporters**: attribute sets are built from a clone of the metric's attributes, because `attribute.NewSet` sorts its input in place and exporters run in parallel on shared batches.
+
+## [1.3.0] - 2026-10-06
+
+### Added
+
+- **Default `service.instance.id` resource attribute**: OTLP exports now set `service.instance.id` to the hostname when neither `OTEL_RESOURCE_ATTRIBUTES` nor `WithOTLPResourceAttributes` provides one (a random hex ID if there is no hostname). Previously replicas of one service exported identical series, so cumulative counters from different processes interleaved as false resets and gauges flapped between replicas. Prometheus-compatible backends receive it as the `instance` label, so expect one series per replica; aggregate with `sum`/`max` across `instance`. To opt out, set `service.instance.id` explicitly (for example `OTEL_RESOURCE_ATTRIBUTES=service.instance.id=<name>`).
 
 ## [1.2.2] - 2026-10-01
 
@@ -154,6 +184,8 @@ A v2 release would need the module path `github.com/convoy-road-trips-app/stats/
 
 See [README.md](README.md) for installation and quick start guide.
 
+[1.4.0]: https://github.com/convoy-road-trips-app/stats/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/convoy-road-trips-app/stats/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/convoy-road-trips-app/stats/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/convoy-road-trips-app/stats/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/convoy-road-trips-app/stats/compare/v1.1.0...v1.2.0

@@ -1,0 +1,14 @@
+# 30-fail: relative link check
+# grep -o '](docs/[^)]*)' README.md, each path must exist
+OK    docs/architecture.md
+OK    docs/otel_compliance.md
+OK    docs/performance_guide.md
+OK    docs/runtime_metrics.md
+OK    docs/usage.md
+
+# Full link + anchor check over README, docs/usage.md, docs/otel_compliance.md, docs/runtime_metrics.md, CHANGELOG.md, CLAUDE.md (/tmp/linkcheck.py)
+links checked: 70 broken: 0
+
+# Negative control: a deliberately broken link is detected
+BROKEN docs/nope.md
+OK     README.md#no-such-heading

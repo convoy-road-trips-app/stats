@@ -160,7 +160,42 @@ These rules apply to the OTLP exporter (`stats.WithOTLP`) in both modes.
 - Observations are aggregated per export batch into explicit-bucket histograms, one data point per attribute set, with count, sum, min, max and cumulative-range bucket counts.
 - Default bounds are the telemetry spec D9 seconds buckets: `0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10` (`models.DefaultHistogramBuckets()`).
 - `stats.WithHistogramBuckets(bounds)` overrides them. Bounds must be finite and strictly increasing; an empty list is rejected.
+- `stats.WithHistogramBucketsFor(name, bounds...)` overrides the bounds for one metric name, with the same validation. Lookup order is the per-name bounds, then the global bounds, then the defaults. The OTLP exporter and the Prometheus pull handler use the same lookup, so both expose the same bounds. Bounds are in the unit you record in; histograms created through the OTel API use the same lookup by metric name.
 - In Prometheus these arrive as `<name>_bucket{le="..."}`, `<name>_count` and `<name>_sum`. `test/integration/lgtm/buckets_test.go` checks every `le` series and its count against the LGTM stack for the legacy API, a custom bucket override, and the OTel API.
+
+### Exponential histograms
+
+`stats.WithExponentialHistogram(maxSize, maxScale int32)` exports histograms as base-2 exponential histograms, which need no bucket configuration and keep relative error bounded.
+
+- Each series starts at scale `maxScale` (range -10 to 20) and is downscaled when its values need more than `maxSize` buckets (at least 2) in the positive or the negative range.
+- **A zero argument selects the default**: 160 buckets and scale 20, matching the OTel SDK. Scale 0 therefore cannot be chosen. Other out-of-range values make `NewClient` return `stats.ErrInvalidConfig`, even when OTLP is not enabled.
+- **A metric with its own bounds from `WithHistogramBucketsFor` keeps explicit buckets.** `WithHistogramBuckets` then applies to no metric, since every other histogram is exponential.
+- With cumulative temporality (the default), each export is merged into the series' earlier state: both are downscaled to the coarser of their scales, and further until the merged ranges fit `maxSize` buckets again.
+- Only OTLP is affected. The receiving backend must support exponential histograms.
+
+### Environment configuration
+
+The OTLP exporter can be configured from the standard `OTEL_*` variables. This is opt-in: `OTEL_*` variables only fill in configuration, and the environment alone never enables OTLP. Enable it with `stats.WithOTLP(...)`, `stats.WithOTLPFromEnv()` or, in OTel mode, `otel.NewMeterProviderFromEnv()`.
+
+**Precedence: explicit options win over environment variables, which win over defaults.** The metrics-specific `OTEL_EXPORTER_OTLP_METRICS_*` variable wins over the generic `OTEL_EXPORTER_OTLP_*` one. `stats.WithOTLP(&stats.OTLPConfig{...})` states every transport field of its struct, so zero values in it also beat the environment; use `WithOTLPFromEnv()` plus single-setting options (`WithOTLPExportTimeout`, `WithTemporality`, ...) to mix the two.
+
+Supported variables:
+
+- `OTEL_SDK_DISABLED`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`, `DEPLOYMENT_ENVIRONMENT`, `SERVICE_VERSION`
+- `OTEL_EXPORTER_OTLP_PROTOCOL` (`grpc` or `http/protobuf`; `http/json` is rejected), `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_INSECURE`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_TIMEOUT`, `OTEL_EXPORTER_OTLP_COMPRESSION`, and each of these with the `OTEL_EXPORTER_OTLP_METRICS_` prefix
+- `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` (`cumulative` or `delta`; `lowmemory` is rejected)
+- `OTEL_METRIC_EXPORT_INTERVAL` (milliseconds; `WithFlushInterval` and `WithOTLPExportInterval` win)
+- `STATS_DISABLE_GO_VERSION_REPORTING` (this library's own, for the version gauges)
+
+Not supported, with no effect: `OTEL_EXPORTER_OTLP_CERTIFICATE`, the `OTEL_EXPORTER_OTLP_CLIENT_*` variables, `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION`, and any other `OTEL_*` variable. The endpoint, TLS mode, headers, timeout and compression handed to the SDK exporters are always the ones this library resolved, so SDK-side environment reading cannot change them. A malformed supported value makes `NewClient` return an error wrapping `stats.ErrInvalidConfig` that names the variable. Values and defaults are listed in [usage.md](usage.md#environment-variables).
+
+### OTEL_SDK_DISABLED
+
+With `OTEL_SDK_DISABLED=true` (case-insensitive), `stats.NewClient`, `otel.NewMeterProvider` and `otel.NewMeterProviderFromEnv` start no pipeline, exporter or runtime collector and dial nothing. Every instrument becomes a no-op, `ForceFlush` and `Shutdown` return nil, observable callbacks are never registered, and `Client.Disabled()` reports the state.
+
+### Version metrics
+
+On the first successful record of a root client, the library also records the gauges `stats_version` (the module version, or `(devel)`) and `go_version` (`runtime.Version()`, skipped for `devel` toolchains), each with value 1, the version in an attribute of the same name, and tagged with service and environment only. This applies in both modes and adds two series per process. `stats.WithVersionReporting(false)` or `STATS_DISABLE_GO_VERSION_REPORTING=true|TRUE|yes|1` turns it off; the option wins over the variable.
 
 ### Resource
 
@@ -271,6 +306,8 @@ This is well within our performance targets and is primarily due to attribute co
 
 ### Provider Options
 
+`otel.NewMeterProviderFromEnv(opts...)` is `NewMeterProvider` with `stats.WithOTLPFromEnv()` prepended, so OTLP is configured from the environment and `OTEL_SDK_DISABLED` is honored; later options win over the environment.
+
 ```go
 provider, _ := otel.NewMeterProvider(
     // Set resource information
@@ -313,9 +350,9 @@ v1.1.0 is released as a minor version although it changes behavior observable by
 1. **UpDownCounter is a gauge**: synchronous `UpDownCounter.Add(n)` records a gauge whose value is `n`, the latest increment, not a running total. Observable UpDownCounters export the observed value as a gauge. Neither is exported as a non-monotonic OTLP Sum.
 2. **No Views**: Metric views are not implemented; cardinality is bounded by the fixed limits above.
 3. **No Readers**: Custom metric readers are not supported; export is push-only through the pipeline.
-4. **Units are not converted**: `Client.Timing` records milliseconds into a histogram, while the default buckets are in seconds. Use `Histogram` with seconds, or set `WithHistogramBuckets`.
+4. **Units are not converted**: `Client.Timing` records milliseconds into a histogram, while the default buckets are in seconds. Use `Client.Observe` (a `time.Duration`, recorded in seconds) or `Histogram` with seconds, or set `WithHistogramBuckets`. `Timing` is unchanged; `Observe` is available through the optional `stats.DurationObserver` interface.
 5. **Counters accept negative values** in the legacy API (`Client.Counter`); they are not rejected.
-6. **No OTLP environment configuration**: `OTEL_EXPORTER_OTLP_ENDPOINT` and related variables are not read; configure the endpoint with `WithOTLP`.
+6. **OTLP environment configuration is partial**: only the variables listed under [Environment configuration](#environment-configuration) are read, and only when OTLP is enabled. TLS certificate and client-certificate variables and the histogram aggregation variable are not supported.
 7. **Prometheus OTLP ingestion requires cumulative temporality** (the default); `WithTemporality(stats.Delta)` series are dropped by Prometheus' OTLP receiver.
 8. **Synchronous instruments drop description and unit**: `metric.WithDescription` / `metric.WithUnit` on synchronous OTel instruments are accepted but not exported; observable instruments export them.
 9. **Values are float64**: the pipeline carries every value as `float64`, so `Int64*` instruments (synchronous and observable) are exported as OTLP double points, and integers with magnitude above 2^53 (9007199254740992) are rounded to the nearest representable double.
@@ -331,6 +368,10 @@ v1.1.0 is released as a minor version although it changes behavior observable by
 - [ ] Non-monotonic Sum export for UpDownCounters
 - [ ] Metric views for cardinality control
 - [ ] Custom metric readers
+
+## Timing steps with a Clock
+
+`otel.NewClock(histogram, opts...)` times the sequential steps of one operation into any `metric.Float64Histogram`, in seconds, with a `stamp` attribute naming the step (this SDK's histogram or any other). `Stamp(ctx, name)` records the time since the previous step, and `Stop(ctx)` records the total under `stamp="total"`. `NewClockAt`, `StampAt` and `StopAt` take an explicit time. A clock is not safe for concurrent use; use constant step names, because each distinct name is a new series. Without the OTel API, use `client.Clock(name)` (see [usage.md](usage.md#clock)).
 
 ## Examples
 

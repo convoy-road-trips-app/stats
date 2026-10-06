@@ -1,6 +1,6 @@
 # Runtime Metrics
 
-Automatic Go runtime telemetry collection for CPU, heap, GC, and goroutine metrics.
+Automatic Go runtime telemetry collection for CPU, heap, GC, goroutine, memstats-style and (opt-in) process and delay metrics.
 
 ## Overview
 
@@ -13,6 +13,8 @@ The runtime metrics collector periodically samples Go's `runtime/metrics` packag
 - Low overhead: sample slice allocated once and reused across ticks
 - Default collection interval: 10 seconds
 - Default metric prefix: `runtime.go`
+- Process metrics (`stats.WithRuntimeProcessMetrics()`) and delay metrics (`stats.WithRuntimeDelayMetrics()`) are separate opt-ins, described below
+- Collector failures are counted in `ExporterErrors["runtimemetrics.<source>"]`, at most once per source
 
 ## Enabling
 
@@ -43,6 +45,8 @@ defer provider.Shutdown(context.Background())
 All metrics are emitted as **gauges with absolute values**. The default prefix is `runtime.go`.
 
 ### Memory
+
+The `memory.*` names follow Go's `runtime.MemStats` fields (heap, stack, mspan, mcache, buckhash, gc and other off-heap bytes). They are derived from `runtime/metrics` samples, never from `runtime.ReadMemStats`, so collection never stops the world. A metric whose source is missing on the running Go version is skipped.
 
 | Metric Name | Source | Description |
 |---|---|---|
@@ -137,9 +141,30 @@ Not emitted on Darwin: `memory.usage.bytes` for `shared`, `text` and `data`, `me
 
 A source that cannot be read is skipped for that collection and reported through `OnError("process", err)` at most once per source (surfacing as `ExporterErrors["runtimemetrics.process"]`).
 
+### Delay Metrics (Linux, opt-in)
+
+Enabled with `stats.WithRuntimeDelayMetrics()` (implies `WithRuntimeMetrics()`). They come from the Linux taskstats netlink interface for the current process, so they need **Linux, `CAP_NET_ADMIN` (or root) and kernel delay accounting enabled** (`CONFIG_TASK_DELAY_ACCT`, `sysctl kernel.task_delayacct=1` on kernels that default it off). These are **counters**: the kernel totals are cumulative, so each collection emits the increase since the previous one (the first collection emits the full total). A total that decreases is treated as a reset and emitted as-is; increments are never negative.
+
+| Metric Name | Description |
+|---|---|
+| `runtime.go.cpu.delay.seconds` | Time runnable but waiting for a CPU |
+| `runtime.go.blockio.delay.seconds` | Time waiting for synchronous block I/O |
+| `runtime.go.swapin.delay.seconds` | Time waiting for swap-in |
+| `runtime.go.freepages.delay.seconds` | Time waiting for memory reclaim (zero on kernels without the field) |
+
+If the first read fails (unsupported platform, `EPERM`, delay accounting off), the error is reported through `OnError("delay", err)` exactly once (surfacing as `ExporterErrors["runtimemetrics.delay"]`) and delay collection is disabled for the life of the client; it is never retried.
+
+## The runtimemetrics package
+
+`stats.WithRuntimeMetrics()` wires a `runtimemetrics.Collector` into the client. You can also use the package directly:
+
+- `runtimemetrics.New(cfg Config, record RecordFunc) *Collector` with `Start`, `Collect` (one synchronous sample) and `Stop(ctx)`. `Config` has `CollectInterval`, `Prefix`, `ProcessMetrics`, `DelayMetrics` and `OnError func(source string, err error)`. The package never imports `stats`; `RecordFunc` is how metrics leave it.
+- `runtimemetrics.Get(pid int) (DelayInfo, error)` reads the cumulative taskstats delay totals of a process (`DelayInfo{CPU, BlockIO, SwapIn, FreePages time.Duration}`). On platforms other than Linux it returns an error for which `runtimemetrics.IsUnsupported(err)` is true.
+- `runtimemetrics.ParseTaskstatsReply(buf, seq)` decodes a netlink reply to a taskstats request and never panics on malformed input.
+
 ## Semantics: Why Gauges, Not Counters
 
-Several runtime values (CPU seconds, alloc bytes, GC cycles) are **cumulative since process start**. We emit them as absolute gauges rather than delta counters because:
+Several runtime values (CPU seconds, alloc bytes, GC cycles) are **cumulative since process start**. We emit them as absolute gauges rather than delta counters because (the delay metrics above are the exception, because the kernel totals are read from outside the Go runtime and are emitted as increments):
 
 1. **No bootstrap spike**: A counter would emit a massive value on the first sample (all time since process start). Gauges avoid this entirely.
 2. **Restart-safe**: When a process restarts, the gauge starts from zero naturally. Delta counters would require tracking previous values across restarts.

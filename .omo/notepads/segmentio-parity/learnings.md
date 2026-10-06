@@ -9,7 +9,6 @@ Conventions, patterns, and successful approaches discovered during work on this 
 - `attribute.NewSet` sorts its variadic attribute slice in place. Exporters run concurrently on shared metrics, so clone metric attributes before creating an OTel set in both the OTLP and Prometheus exporters to prevent a data race and mutation of pipeline-owned metrics.
 - Verification: the focused shared-bucket test, requested lint/vet/race checks, module diff, and darwin/linux/windows builds passed; see `.omo/evidence/segmentio-parity/pr27.txt`.
 - The task test uses the real client, OTLP/HTTP protobuf receiver, and Prometheus scrape endpoint; named, global fallback, and default fallback bounds are asserted on both surfaces.
-<<<<<<< HEAD
 
 ## PR15c (feat: WithExponentialHistogram for OTLP)
 - `WithExponentialHistogram(maxSize, maxScale)` follows segmentio's SDKConfig: a zero argument selects the default (160 buckets, scale 20), so scale 0 cannot be chosen; this is documented on the option and on `models.OTLPExponentialHistogram`. Defaults are resolved by the non-mutating `Resolved()`, so a struct passed to `WithOTLP` (which now copies it) is never changed.
@@ -21,8 +20,6 @@ Conventions, patterns, and successful approaches discovered during work on this 
 - Lint: the `golangci-lint` on PATH is v1.64.8 and rejects the v2 config, so `make lint` fails on main too. `GOBIN=<tmp> go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2` works offline from the module cache. Full v2 runs report 49 issues that already exist on main; CI uses only-new-issues, i.e. `--new-from-rev=main`. Give each worktree its own `GOLANGCI_LINT_CACHE`: a shared cache reported files of other worktrees. With the default `max-same-issues: 3`, same-text issues (intrange) vary between runs, so compare main and branch with `--max-same-issues=0 --max-issues-per-linter=0`.
 - Lint gotchas hit here: `unparam` flags test helpers whose name parameter always receives the same literal (name the helper after the metric instead); `prealloc` flags `append(small, large...)` on a slice literal (use `slices.Concat`); `metricdata.ExponentialHistogramDataPoint` is ~250 bytes, so pass it by pointer (gocritic hugeParam) and index its slices instead of ranging by value (rangeValCopy).
 - Adding exponential conversion took `exporters/otlp/exporter.go` to 246 pure LOC, so the unchanged explicit-bucket aggregation moved to `histogram.go`, next to `histogram_test.go`. Evidence: `.omo/evidence/segmentio-parity/10-happy.txt` and `10-fail.txt`.
-||||||| e3cbeb7
-=======
 
 ## Task 29 (examples for new packages)
 - `statstest.NewClient` needs a `testing.TB`, so `main` examples cannot use it; use `debugstats.Exporter{Dst, Grep}` as the in-process capture/console instead. Two debugstats exporters in one client collide on `Name()` ("duplicate exporter name"); wrap one in a struct that overrides `Name()`.
@@ -30,4 +27,13 @@ Conventions, patterns, and successful approaches discovered during work on this 
 - Prometheus pull: `Flush` before scraping, as metrics reach the handler asynchronously; counters render as `<name>_total`.
 - httpstats client duration is recorded on response body close, so examples must drain and close the body before `Flush`. netstats flushes read/write totals on `Close`, so close both ends before `Flush`.
 - `for line := range strings.SplitSeq(...)` is fine with Go 1.25.
->>>>>>> feat/sp-37-examples
+
+## Task 30 (README, docs, CHANGELOG, CLAUDE.md)
+- `feat/sp-38-docs` does NOT contain the delay metrics: `feat/sp-36c-delay-metrics` (199ffef, `WithRuntimeDelayMetrics`, `cpu.delay.seconds` and friends) is not merged, so `go doc` here shows only `runtimemetrics.Get`/`DelayInfo`/`IsUnsupported` and a no-op `Config.DelayMetrics`. The delay docs (`docs/runtime_metrics.md`, README migration row, CHANGELOG) are copied from the 36c branch's text; merge 36c before this branch, or drop those lines. Merging 36c later will conflict in CHANGELOG.md and docs/runtime_metrics.md (the same text, resolve by keeping one copy).
+- The merged CHANGELOG had a stray `||||||| parent of f9ce7da` conflict marker line inside `[Unreleased]` (and the 36c branch carries another); removed here. Watch for it when merging 36c.
+- The `v1.3.0` tag already contains the `service.instance.id` change, but the CHANGELOG still listed it under `[Unreleased]`. Cut it out as `[1.3.0] - 2026-10-06`; everything new is `[1.4.0] - Unreleased` (new minor). Added `[1.4.0]`/`[1.3.0]` compare links.
+- `WithOTLP(&OTLPConfig{...})` states every transport field (endpoint, insecure, headers, timeout, compression, protocol, temporality) as an override, so zero values beat `OTEL_*`. To mix env and options use `WithOTLPFromEnv()` plus single-setting options. Documented in usage.md.
+- `WithRuntimeProcessMetrics` godoc still says "collected on Linux"; Darwin is supported since #54. Docs say Linux and Darwin. Library godoc left untouched (no library edits allowed here).
+- Datadog `Filters` default (`http_req_path`) is a visible behavior change for existing users, so CHANGELOG lists it under "Behavior changes".
+- Never name a zsh variable `path` in a shell snippet: it is tied to `$PATH` and breaks every later command in a persistent shell. Use Python for link checks.
+- Verification helpers (not committed): a `go doc -all` word-match script and a relative-link/anchor checker; evidence is in `.omo/evidence/segmentio-parity/30-happy.txt` and `30-fail.txt`. Remaining "missing" identifiers in the root and `models` are pre-existing (`MetricBuilder`, `RateLimiter`, ...), not added by this plan.

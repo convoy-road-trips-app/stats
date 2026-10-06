@@ -201,48 +201,92 @@ for name, count := range stats.Pipeline.ExporterErrors {
 
 ```
 .
-├── client.go              # Legacy API (Counter, Gauge, Histogram)
+├── client.go              # Legacy API (Counter, Gauge, Histogram, Timing)
+├── client_lifecycle.go    # Flush, Shutdown, Close
+├── client_event.go        # Client.Event (Datadog events)
+├── observe.go             # Client.Observe, DurationObserver
+├── clock.go               # Clock (sequential step timing), StampTag/StampTotal
+├── context_tags.go        # ContextWithTags, ContextAddTags, ContextTags
+├── report.go              # Report, ReportAt (struct-tag driven metrics)
+├── env_otlp.go            # OTEL_* environment resolution, OTEL_SDK_DISABLED
+├── version_metrics.go     # stats_version and go_version gauges
+├── prometheus_handler.go  # WithPrometheusHandler (pull exposition)
+├── datadog_event.go       # DatadogEvent aliases and constants
 ├── pipeline.go            # Metric processing pipeline (shared by both modes)
+├── pipeline_init.go       # Pipeline and exporter construction
+├── drain.go               # Flush barrier and shutdown drain
+├── cardinality.go         # Attribute key validation and series limits
+├── ratelimit.go           # Observation rate limit
+├── exemplar.go            # Trace exemplars
 ├── metric.go              # Metric types and pooling
+├── interface.go           # Recorder, Flusher, DurationObserver, EventSender
+├── noop.go                # NoOpClient
 ├── config.go              # Configuration structures
 ├── options.go             # Functional options
 ├── errors.go              # Error definitions
-├── Makefile              # Build and test automation
+├── Makefile               # Build and test automation
 ├── otel/                  # OpenTelemetry SDK implementation
-│   ├── meter_provider.go  # MeterProvider (creates Meters)
+│   ├── meter_provider.go  # MeterProvider, NewMeterProviderFromEnv
 │   ├── meter.go           # Meter (creates instruments)
-│   └── instruments.go     # All OTel instruments (Counter, Histogram, Gauge, etc.)
+│   ├── instruments.go     # Synchronous instruments (Counter, Histogram, Gauge, UpDownCounter)
+│   ├── observable.go      # Observable instruments and callbacks
+│   └── clock.go           # otel.Clock for Float64Histogram
 ├── transport/
 │   ├── buffer.go          # Lock-free ring buffer
-│   ├── udp.go            # UDP connection pool
-│   └── circuit.go        # Circuit breaker
+│   ├── udp.go             # UDP and unixgram connection pool
+│   └── circuit.go         # Circuit breaker
 ├── exporters/
-│   ├── datadog/          # Datadog DogStatsD exporter
-│   ├── prometheus/       # Prometheus StatsD exporter
-│   ├── cloudwatch/       # CloudWatch EMF exporter
-│   └── otlp/             # OTLP gRPC exporter
+│   ├── exporter.go        # BaseExporter and Serializer
+│   ├── multi.go           # exporters.Multi
+│   ├── filtered.go        # exporters.Filtered
+│   ├── datadog/           # Datadog DogStatsD exporter (batching, filters, events)
+│   ├── prometheus/        # Prometheus StatsD push exporter and pull Handler
+│   ├── cloudwatch/        # CloudWatch EMF exporter
+│   └── otlp/              # OTLP gRPC/HTTP exporter (explicit and exponential histograms)
 ├── serializers/
-│   ├── dogstatsd.go      # DogStatsD format
-│   ├── statsd.go         # StatsD format
-│   └── emf.go            # CloudWatch EMF format
-├── models/               # Shared data structures
-│   ├── metric.go         # Core metric model
-│   ├── config.go         # Config models
-│   └── otlp_config.go    # OTLP-specific config
+│   ├── dogstatsd.go       # DogStatsD format
+│   ├── dogstatsd_event.go # DogStatsD events
+│   ├── statsd.go          # StatsD format
+│   └── emf.go             # CloudWatch EMF format
+├── httpstats/             # HTTP server middleware and client transport metrics
+├── netstats/              # net.Conn, net.Listener and Handler metrics (batched)
+├── iostats/               # CountReader, CountWriter and function adapters
+├── statstest/             # Test client, capturing Exporter and DogStatsDServer
+├── debugstats/            # Exporter that prints StatsD lines
+├── runtimemetrics/        # Runtime metrics collector (memstats, process, taskstats delay)
+├── models/                # Shared data structures
+│   ├── metric.go          # Core metric model
+│   ├── config.go          # Config models
+│   ├── exporter.go        # Exporter interface
+│   ├── datadog_event.go   # DatadogEvent
+│   └── otlp_config.go     # OTLP-specific config
 ├── internal/
-│   ├── types/            # Internal type definitions
-│   └── pool/             # Object pooling
+│   └── types/             # Internal type definitions
 ├── examples/
-│   ├── basic/            # Legacy API usage
-│   ├── otel/             # OpenTelemetry API usage
-│   └── multibackend/     # Multiple backends
-├── docs/                 # Detailed documentation
+│   ├── basic/             # Legacy API usage
+│   ├── quickstart/        # Minimal client with flush and shutdown
+│   ├── otel/              # OpenTelemetry API usage
+│   ├── multibackend/      # Multiple backends
+│   ├── testing/           # Testing with the Recorder interface
+│   ├── report/            # stats.Report
+│   ├── clock/             # Clock and Observe
+│   ├── httpstats/         # HTTP instrumentation
+│   ├── netstats/          # Connection instrumentation
+│   ├── prometheus-pull/   # Prometheus scrape endpoint
+│   ├── debugstats/        # debugstats exporter
+│   ├── runtimemetrics/    # Runtime metrics
+│   └── docker/            # Demo service, collector and Prometheus
+├── test/integration/      # Docker-based backend tests
+├── docs/                  # Detailed documentation
+│   ├── usage.md                # Install, usage, options, environment variables
 │   ├── architecture.md
 │   ├── otel_compliance.md      # OTel feature documentation
+│   ├── runtime_metrics.md      # Runtime, process and delay metrics
 │   ├── performance_guide.md
 │   ├── performance_checklist.md
 │   ├── benchmarking.md
 │   └── performance_patterns.md
+├── CHANGELOG.md
 └── CLAUDE.md             # This file
 ```
 
@@ -345,7 +389,9 @@ go test -run TestRingBuffer ./transport/...
 
 ## Documentation
 
-- **README.md**: Quick start and API overview (both legacy and OTel modes)
+- **README.md**: Quick start, API overview (both legacy and OTel modes) and the "Migrating from segmentio/stats" table
+- **docs/usage.md**: Install, usage, option reference and environment variables
+- **docs/runtime_metrics.md**: Runtime, memstats, process and delay metrics
 - **docs/architecture.md**: Detailed system architecture
 - **docs/otel_compliance.md**: OpenTelemetry SDK compliance details, supported instruments, limitations
 - **docs/performance_guide.md**: Performance tuning and optimization
@@ -370,10 +416,12 @@ The `otel/` package provides a complete OpenTelemetry SDK implementation:
 
 Four exporters are available, each with isolated failure domains:
 
-1. **Datadog** (`exporters/datadog/`): DogStatsD protocol over UDP
-2. **Prometheus** (`exporters/prometheus/`): StatsD protocol over UDP
+1. **Datadog** (`exporters/datadog/`): DogStatsD protocol over UDP or a Unix datagram socket, plus events
+2. **Prometheus** (`exporters/prometheus/`): StatsD protocol over UDP (push), or the `Handler` for pull exposition
 3. **CloudWatch** (`exporters/cloudwatch/`): EMF format via CloudWatch Logs
-4. **OTLP** (`exporters/otlp/`): OpenTelemetry Protocol over HTTP
+4. **OTLP** (`exporters/otlp/`): OpenTelemetry Protocol over gRPC or HTTP
+
+Custom exporters are added with `stats.WithExporter` and composed with `exporters.Multi` and `exporters.Filtered`.
 
 ### Performance Characteristics
 

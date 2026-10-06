@@ -1,0 +1,62 @@
+# 30-happy: go doc -all cross-check of exported identifiers against README/docs/CHANGELOG/CLAUDE.md
+# Script: /tmp/docscheck.py (parses 'go doc -all ./<pkg>' and word-matches every exported func/method/type/const/var)
+# 'missing' lists below contain only identifiers that predate this plan (see notes), none added by todos 1-28 except as noted.
+== ./httpstats: 7 idents, missing 0: []
+== ./netstats: 11 idents, missing 0: []
+== ./iostats: 8 idents, missing 0: []
+== ./statstest: 30 idents, missing 0: []
+== ./debugstats: 4 idents, missing 0: []
+== ./exporters: 12 idents, missing 0: []
+== ./exporters/datadog: 4 idents, missing 0: []
+== ./exporters/prometheus: 26 idents, missing 0: []
+== ./runtimemetrics: 11 idents, missing 0: []
+== ./otel: 38 idents, missing 5: ['ErrCollectionInterval', 'Int64ObservableCounter', 'Int64ObservableGauge', 'Int64ObservableUpDownCounter', 'MeterProviderOption']
+== ./models: 55 idents, missing 13: ['AcquireMetric', 'ApplyDefaults', 'DefaultRuntimeMetricsConfig', 'DropStrategy', 'EstimateSize', 'HasExemplar', 'MetricType', 'MetricTypeCounter', 'OTLPProtocol', 'OTLPRetry', 'ReleaseMetric', 'Reset', 'RuntimeMetricsConfig']
+== .: 147 idents, missing 32: ['AcquireMetric', 'Allow', 'AllowN', 'DropStrategy', 'ErrCircuitOpen', 'ErrExportFailed', 'ErrPoolClosed', 'ErrRateLimitExceeded', 'ErrTimeout', 'MetricBuilder', 'MetricType', 'MetricTypeCounter', 'MetricTypeGauge', 'MetricTypeHistogram', 'NewCounter', 'NewGauge', 'NewHistogram', 'NewPipeline', 'NewRateLimiter', 'OTLPProtocol', 'OTLPRetry', 'PipelineStats', 'RateLimiter', 'RateLimiterStats', 'RecordExporterError', 'RecordMetric', 'ReleaseMetric', 'RuntimeMetricsConfig', 'ValidateConfig', 'WithOTelMode', 'WithPriority', 'WithTag']
+
+# Root-package identifiers added since v1.3.0 (go doc -short diff) and where they are documented:
+EventPriorityNormal -> README.md docs/usage.md 
+StampTag -> docs/usage.md CHANGELOG.md 
+StampTotal -> docs/usage.md CHANGELOG.md 
+ContextAddTags -> README.md docs/usage.md CHANGELOG.md 
+ContextTags -> README.md docs/usage.md CHANGELOG.md 
+ContextWithTags -> README.md docs/usage.md CHANGELOG.md 
+Report( -> README.md docs/usage.md 
+ReportAt -> README.md docs/usage.md CHANGELOG.md 
+Clock -> README.md docs/usage.md docs/otel_compliance.md CHANGELOG.md 
+NewClock -> README.md docs/usage.md docs/otel_compliance.md CHANGELOG.md 
+NewClockAt -> README.md docs/usage.md docs/otel_compliance.md CHANGELOG.md 
+DatadogEvent -> README.md docs/usage.md CHANGELOG.md 
+DurationObserver -> README.md docs/usage.md docs/otel_compliance.md CHANGELOG.md 
+EventAlertType -> README.md docs/usage.md 
+EventPriority -> README.md docs/usage.md 
+EventSender -> README.md docs/usage.md CHANGELOG.md 
+OTLPExponentialHistogram -> docs/usage.md 
+OTLPOverrides -> docs/usage.md 
+WithExponentialHistogram -> README.md docs/usage.md docs/otel_compliance.md CHANGELOG.md 
+WithExporter -> README.md docs/usage.md CHANGELOG.md 
+WithHistogramBucketsFor -> README.md docs/usage.md docs/otel_compliance.md CHANGELOG.md 
+WithOTLPExportInterval -> README.md docs/usage.md docs/otel_compliance.md CHANGELOG.md 
+WithOTLPExportTimeout -> README.md docs/usage.md docs/otel_compliance.md CHANGELOG.md 
+WithOTLPFromEnv -> README.md docs/usage.md docs/otel_compliance.md CHANGELOG.md 
+WithPrometheusHandler -> README.md docs/usage.md CHANGELOG.md 
+WithRuntimeProcessMetrics -> README.md docs/usage.md docs/runtime_metrics.md CHANGELOG.md 
+WithVersionReporting -> README.md docs/usage.md docs/otel_compliance.md CHANGELOG.md 
+
+# NOTE: stats.WithRuntimeDelayMetrics, delay counters (cpu.delay.seconds ...) are documented from branch feat/sp-36c-delay-metrics (199ffef), which is NOT merged into feat/sp-38-docs HEAD.
+# go doc here shows runtimemetrics.Config.DelayMetrics but no collector emission and no WithRuntimeDelayMetrics.
+
+# Snippet compile check (scratch main, vet): SNIPPETS_OK (README/usage snippets compile against real signatures)
+
+# go build ./... && go vet ./...
+BUILD_VET_OK
+
+# go run ./examples/clock
+job.duration:0.010106041|h|#job:nightly,stamp:load
+job.duration:0.005055292|h|#job:nightly,stamp:store
+job.duration:0.035326|h|#job:nightly,stamp:total
+cleanup.duration:0.003|h
+job.duration:0.020147625|h|#job:nightly,stamp:transform
+exit=0
+
+go.mod/go.sum unchanged
