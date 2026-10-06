@@ -2,7 +2,11 @@
 // the stats package. Exporter captures what the pipeline exports so tests can
 // assert on it, and NewClient wires one into a client.
 //
-// The package imports only stats, models and exporters, never internal/.
+// DogStatsDServer is a DogStatsD UDP/unixgram server for asserting on what a
+// client sends over the wire.
+//
+// The package imports only stats, models, exporters and serializers, never
+// internal/.
 package statstest
 
 import (
