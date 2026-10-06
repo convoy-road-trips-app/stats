@@ -60,6 +60,15 @@ func TestNewClient_OTLP_resource_uses_environment_when_identity_is_not_explicit(
 	for _, attr := range request.GetResourceMetrics()[0].GetResource().GetAttributes() {
 		attrs[attr.GetKey()] = attr.GetValue().GetStringValue()
 	}
+	// Detected host, process and SDK attributes are present by default.
+	require.Equal(t, host, attrs["host.name"])
+	require.Equal(t, "go", attrs["process.runtime.name"])
+	require.Equal(t, "opentelemetry", attrs["telemetry.sdk.name"])
+	for key := range attrs {
+		if strings.HasPrefix(key, "process.") || strings.HasPrefix(key, "telemetry.sdk.") || key == "host.name" {
+			delete(attrs, key)
+		}
+	}
 	require.Equal(t, map[string]string{
 		"service.name":           "checkout-api",
 		"deployment.environment": "production",
@@ -67,4 +76,10 @@ func TestNewClient_OTLP_resource_uses_environment_when_identity_is_not_explicit(
 		"team":                   "payments",
 		"service.instance.id":    host,
 	}, attrs)
+}
+
+func TestWithoutOTLPResourceDetection(t *testing.T) {
+	cfg := newConfigFrom(t, WithoutOTLPResourceDetection(), WithOTLP(&OTLPConfig{Endpoint: "c:4317"}))
+	require.True(t, cfg.OTLP.DisableResourceDetection, "WithOTLP keeps an earlier dedicated opt-out")
+	require.False(t, newConfigFrom(t, WithOTLP(&OTLPConfig{Endpoint: "c:4317"})).OTLP.DisableResourceDetection)
 }

@@ -25,6 +25,13 @@ func metricTemporality(temporality models.Temporality) metricdata.Temporality {
 
 func resourceForConfig(config *models.OTLPConfig) *resource.Resource {
 	attrs := make(map[string]attribute.KeyValue)
+	// Detected attributes have the lowest precedence: the environment and the
+	// explicit config below overwrite them.
+	if !config.DisableResourceDetection {
+		for _, entry := range detectedAttributes() {
+			attrs[string(entry.Key)] = entry
+		}
+	}
 	for _, entry := range parseResourceAttributes(os.Getenv("OTEL_RESOURCE_ATTRIBUTES")) {
 		attrs[string(entry.Key)] = entry
 	}

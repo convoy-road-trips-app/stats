@@ -71,6 +71,11 @@ type OTLPConfig struct {
 	// pair for mutual TLS; either both or neither must be set.
 	ClientCertFile string
 	ClientKeyFile  string
+	// DisableResourceDetection turns off the automatic host, process and SDK
+	// resource attributes (host.name, process.pid, process.runtime.*,
+	// telemetry.sdk.*). They are detected by default and lose to
+	// OTEL_RESOURCE_ATTRIBUTES and to ResourceAttributes.
+	DisableResourceDetection bool
 	// HTTPClient, for the HTTP protocol only, is the client the exporter sends
 	// requests with. The exporter then neither builds its own transport nor
 	// applies TLSConfig, CAFile, ClientCertFile or ClientKeyFile (the client

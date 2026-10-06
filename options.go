@@ -246,6 +246,7 @@ func WithOTLP(cfg *OTLPConfig) Option {
 			merged.DeploymentEnvironment = cmp.Or(merged.DeploymentEnvironment, c.OTLP.DeploymentEnvironment)
 			merged.Retry = cmp.Or(merged.Retry, c.OTLP.Retry)
 			merged.TLSConfig = cmp.Or(merged.TLSConfig, c.OTLP.TLSConfig)
+			merged.DisableResourceDetection = merged.DisableResourceDetection || c.OTLP.DisableResourceDetection
 			merged.HTTPClient = cmp.Or(merged.HTTPClient, c.OTLP.HTTPClient)
 			if merged.GRPCDialOptions == nil {
 				merged.GRPCDialOptions = c.OTLP.GRPCDialOptions
@@ -380,6 +381,18 @@ func WithOTLPGRPCDialOptions(opts ...grpc.DialOption) Option {
 			c.OTLP = &OTLPConfig{}
 		}
 		c.OTLP.GRPCDialOptions = append(slices.Clone(c.OTLP.GRPCDialOptions), opts...)
+	}
+}
+
+// WithoutOTLPResourceDetection turns off the automatic host, process and SDK
+// resource attributes of the OTLP exporter (see
+// OTLPConfig.DisableResourceDetection).
+func WithoutOTLPResourceDetection() Option {
+	return func(c *Config) {
+		if c.OTLP == nil {
+			c.OTLP = &OTLPConfig{}
+		}
+		c.OTLP.DisableResourceDetection = true
 	}
 }
 
