@@ -9,5 +9,9 @@ import (
 )
 
 func collectProcInfo(pid int) (ProcInfo, error) {
-	return collectProcInfoFrom(procfs.Default, pid, uint64(os.Getpagesize()))
+	pageSize := os.Getpagesize()
+	if pageSize <= 0 {
+		pageSize = 4096
+	}
+	return collectProcInfoFrom(procfs.Default, pid, uint64(pageSize))
 }
