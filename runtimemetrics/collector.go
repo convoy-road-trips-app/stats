@@ -81,6 +81,10 @@ type Collector struct {
 	mu     sync.Mutex
 	pauses pauseTracker
 
+	// proc is the process metrics state, nil unless Config.ProcessMetrics is
+	// set and the platform supports it.
+	proc *processState
+
 	startOnce sync.Once
 	stopOnce  sync.Once
 	stopCh    chan struct{}
@@ -128,7 +132,15 @@ func New(cfg Config, record RecordFunc) *Collector {
 	}
 	addSample(gcPausesName, nil)
 
+	var proc *processState
+	if cfg.ProcessMetrics {
+		if src := newProcessSource(); src != nil {
+			proc = newProcessState(src)
+		}
+	}
+
 	return &Collector{
+		proc:      proc,
 		cfg:       cfg,
 		record:    record,
 		samples:   samples,
@@ -237,6 +249,8 @@ func (c *Collector) collectOnce() {
 	if v := c.samples[c.pauseIdx].Value; v.Kind() == metrics.KindFloat64Histogram {
 		c.recordPauseStats(v.Float64Histogram())
 	}
+
+	c.collectProcess()
 
 	gomaxprocs := float64(runtime.GOMAXPROCS(0))
 	c.record(c.prefix()+"gomaxprocs", models.MetricTypeGauge, gomaxprocs)

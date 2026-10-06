@@ -104,6 +104,25 @@ The `gc.pause.seconds.*` gauges are computed from the difference between the cur
 | `runtime.go.cpu.idle.seconds` | `/cpu/classes/idle:cpu-seconds` | Idle CPU time |
 | `runtime.go.cpu.scavenge.seconds` | `/cpu/classes/scavenge/total:cpu-seconds` | Scavenger CPU time |
 
+### Process Metrics (Linux, opt-in)
+
+Enabled with `stats.WithRuntimeProcessMetrics()` (implies `WithRuntimeMetrics()`). Collected on Linux only; other platforms emit nothing. All are gauges under the runtime prefix (cumulative values are absolute, see below).
+
+| Metric Name | Attributes | Source | Description |
+|---|---|---|---|
+| `runtime.go.cpu.usage.seconds` | `type=user\|system` | `/proc/self/stat` utime/stime | Process CPU time. Ticks are converted at a constant 100 Hz (USER_HZ) |
+| `runtime.go.cpu.usage.percent` | | derived | Δcpu seconds / Δwall seconds / GOMAXPROCS × 100; not emitted on the first sample |
+| `runtime.go.memory.usage.bytes` | `type=resident\|shared\|text\|data` | `/proc/self/status` | VmRSS; RssFile+RssShmem; VmExe; VmData |
+| `runtime.go.memory.available.bytes` | | `/proc/meminfo` | MemAvailable |
+| `runtime.go.memory.total.bytes` | | `/proc/meminfo` | MemTotal, capped by cgroup v2 `/sys/fs/cgroup/memory.max` when numeric |
+| `runtime.go.memory.pagefault.count` | `type=major\|minor` | `/proc/self/stat` | Cumulative page faults |
+| `runtime.go.files.open.count` | | `/proc/self/fd` | Open file descriptors |
+| `runtime.go.files.open.max` | | `/proc/self/limits` | Soft "Max open files" limit; not emitted when unlimited |
+| `runtime.go.threads.count` | | `/proc/self/stat` num_threads | OS threads |
+| `runtime.go.threads.switch.count` | `type=voluntary\|involuntary` | `/proc/self/status` | Cumulative context switches |
+
+A source that cannot be read is skipped for that collection and reported through `OnError("process", err)` at most once per source (surfacing as `ExporterErrors["runtimemetrics.process"]`).
+
 ## Semantics: Why Gauges, Not Counters
 
 Several runtime values (CPU seconds, alloc bytes, GC cycles) are **cumulative since process start**. We emit them as absolute gauges rather than delta counters because:

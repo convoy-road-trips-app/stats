@@ -304,3 +304,14 @@ func WithRuntimeMetrics() Option {
 		c.RuntimeMetrics.ApplyDefaults()
 	}
 }
+
+// WithRuntimeProcessMetrics enables process-level runtime metrics (CPU,
+// memory, page faults, open files, threads, context switches) and implies
+// WithRuntimeMetrics. They are collected on Linux; other platforms emit
+// nothing extra.
+func WithRuntimeProcessMetrics() Option {
+	return func(c *Config) {
+		WithRuntimeMetrics()(c)
+		c.RuntimeMetrics.ProcessMetrics = true
+	}
+}
