@@ -51,8 +51,8 @@ The `memory.*` names follow Go's `runtime.MemStats` fields (heap, stack, mspan, 
 | Metric Name | Source | Description |
 |---|---|---|
 | `runtime.go.memory.heap.alloc` | `/memory/classes/heap/objects:bytes` | Bytes of allocated heap objects |
-| `runtime.go.memory.heap.inuse` | `/memory/classes/heap/inuse:bytes` | Bytes in in-use heap spans |
-| `runtime.go.memory.heap.idle` | `/memory/classes/heap/idle:bytes` | Bytes in idle heap spans |
+| `runtime.go.memory.heap.inuse` | `/memory/classes/heap/objects:bytes` + `/memory/classes/heap/unused:bytes` | Bytes in in-use heap spans |
+| `runtime.go.memory.heap.idle` | `/memory/classes/heap/free:bytes` + `/memory/classes/heap/released:bytes` | Bytes in idle heap spans |
 | `runtime.go.memory.heap.released` | `/memory/classes/heap/released:bytes` | Bytes released to the OS |
 | `runtime.go.memory.sys` | `/memory/classes/total:bytes` | Total bytes obtained from OS |
 | `runtime.go.memory.stack.inuse` | `/memory/classes/heap/stacks:bytes` | Bytes in stack spans |
