@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.4.0] - Unreleased
 
-segmentio/stats parity release. It ports the public features of segmentio/stats v5.11.0 (except `influxdb`, `veneur` and the deprecated custom `otlp.Handler`) onto the existing pipeline, with OpenTelemetry semantics. The Go API only gains symbols: `Recorder` and `Timing` are unchanged. See the [migration table](README.md#migrating-from-segmentiostats).
+segmentio/stats parity release. It ports the features of segmentio/stats v5.11.0 that are listed in the [migration tables](README.md#migrating-from-segmentiostats) onto the existing pipeline, with OpenTelemetry semantics. It is not a drop-in replacement: the "Not ported" rows in those tables list what is left out, including `influxdb`, `veneur`, the deprecated custom `otlp.Handler`, `grafana`, `util/objconv`, `cmd/dogstatsd` and parts of `httpstats`, `netstats`, `procstats` and the OTLP configuration. The Go API only gains symbols: `Recorder` and `Timing` are unchanged.
 
 ### Behavior changes
 

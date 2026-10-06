@@ -765,7 +765,7 @@ For assertions on what was recorded, use `statstest.NewClient` (see [statstest a
 
 ## Migrating from segmentio/stats
 
-This library ports the public features of [segmentio/stats](https://github.com/segmentio/stats) v5.11.0. The shapes differ in a few ways that follow from the OpenTelemetry data model:
+This library ports the features of [segmentio/stats](https://github.com/segmentio/stats) v5.11.0 that are listed in the tables below, and the "Not ported" rows name what it leaves out. It is not a drop-in replacement: the shapes differ in a few ways that follow from the OpenTelemetry data model:
 
 - Recording methods take a `context.Context` first and return an `error` (a dropped observation is reported, never blocks).
 - Tags are `stats.WithAttribute(k, v)` options or `attribute.KeyValue` values, and keys must be dotted identifier segments (`ErrInvalidTagKey` otherwise).
@@ -776,23 +776,59 @@ This library ports the public features of [segmentio/stats](https://github.com/s
 | `Engine.Observe` (durations in seconds) | `(*Client).Observe(ctx, name, time.Duration, ...MetricOption) error` and the `stats.DurationObserver` interface. `Timing` is unchanged and records milliseconds |
 | `Engine.WithPrefix`, `Engine.WithTags` | `(*Client).WithPrefix(prefix, opts...)`, `(*Client).WithTags(opts...)`: views that share the pipeline, `Close` on a view does nothing |
 | `ContextWithTags`, `ContextAddTags`, `ContextTags` | Same names in package `stats`, using `[]attribute.KeyValue` |
-| `Report`, `ReportAt`, `MakeMeasures` | `stats.Report(ctx, recorder, v, opts...)`, `stats.ReportAt(ctx, recorder, t, v, opts...)`; there is no `MakeMeasures`, `Report` records directly |
+| `Report`, `ReportAt` | `stats.Report(ctx, recorder, v, opts...)`, `stats.ReportAt(ctx, recorder, t, v, opts...)`; `Report` records directly, see the `MakeMeasures` row below |
 | `Value` types (int, uint, bool, duration) | Accepted by `Report`, converted to `float64` (exact up to 2^53) |
 | `Buckets`, `SetBuckets` | `stats.WithHistogramBucketsFor(name, bounds...)` and `stats.WithHistogramBuckets(bounds)` |
 | `Clock` | `(*Client).Clock(name, opts...)`, `stats.NewClock`, `Stamp`/`Stop` (and `otel.NewClock` for OTel histograms) |
-| `go_version` and `stats_version` metrics | `stats_version` and `go_version` gauges with value 1; `stats.WithVersionReporting(bool)`; `STATS_DISABLE_GO_VERSION_REPORTING` |
+| `go_version` and `stats_version` metrics | `stats_version` and `go_version` gauges with value 1; `stats.WithVersionReporting(bool)`; `STATS_DISABLE_GO_VERSION_REPORTING` (the value `on` is not accepted, see below) |
 | `MultiHandler`, `FilteredHandler`, custom `Handler` | `stats.WithExporter(Exporter)`, `exporters.Multi(name, timeout, ...)`, `exporters.Filtered(e, filter)` |
-| `httpstats` | `httpstats.NewHandler`, `NewHandlerWith`, `NewTransport`, `NewTransportWith`, `RequestWithTags`, `RequestTags`; standard OTel metric names |
-| `netstats` | `netstats.NewConn`, `NewConnWith`, `NewListener`, `NewListenerWith`, `NewHandler`, `NewHandlerWith` and the `Handler` interface; totals are flushed in batches, see [netstats](#netstats) |
+| `httpstats` | `httpstats.NewHandler`, `NewHandlerWith`, `NewTransport`, `NewTransportWith`, `RequestWithTags`, `RequestTags`; standard OTel metric names, with fewer measurements, see [Adapted and not ported](#adapted-and-not-ported) |
+| `netstats` | `netstats.NewConn`, `NewConnWith`, `NewListener`, `NewListenerWith`, `NewHandler`, `NewHandlerWith` and the `Handler` interface; totals are flushed in batches, see [netstats](#netstats) and [Adapted and not ported](#adapted-and-not-ported) |
 | `iostats` | `iostats.CountReader`, `CountWriter`, `ReaderFunc`, `WriterFunc`, `CloserFunc` |
-| `procstats` Go and Proc metrics | `stats.WithRuntimeMetrics()` (memstats-style) and `stats.WithRuntimeProcessMetrics()` (Linux and Darwin), see [docs/runtime_metrics.md](docs/runtime_metrics.md) |
+| `procstats` Go and Proc metrics | `stats.WithRuntimeMetrics()` (memstats-style) and `stats.WithRuntimeProcessMetrics()` (Linux and Darwin), a subset of the segmentio measurements, see [Adapted and not ported](#adapted-and-not-ported) and [docs/runtime_metrics.md](docs/runtime_metrics.md) |
 | `procstats` Delay metrics | Linux taskstats, see [docs/runtime_metrics.md](docs/runtime_metrics.md#delay-metrics-linux-opt-in) |
 | `statstest` | `statstest.Exporter` (captures metrics, `Clear`, `FlushCalls`) and `statstest.DogStatsDServer` (from `datadog.ListenAndServe` and `Serve`) |
 | `debugstats` | `debugstats.Exporter{Dst io.Writer, Grep *regexp.Regexp}` |
 | `datadog` | `stats.WithDatadog` with `Endpoint` (`udp://`, `unixgram://`), `BufferSize` (max 65507), `Filters` (default `http_req_path`), `UseDistributions`, `DistributionPrefixes`, and `(*Client).Event(ctx, DatadogEvent)` |
 | `prometheus` (pull handler) | `prometheus.Handler` (an `http.Handler`) and `stats.WithPrometheusHandler(h)` |
-| `otlp` `SDKConfig` | `OTEL_*` environment configuration, `stats.WithOTLPFromEnv()`, `stats.WithOTLPExportInterval`, `stats.WithOTLPExportTimeout`, `stats.WithExponentialHistogram(maxSize, maxScale)` |
+| `otlp` `SDKConfig` | `OTEL_*` environment configuration, `stats.WithOTLPFromEnv()`, `stats.WithOTLPExportInterval`, `stats.WithOTLPExportTimeout`, `stats.WithExponentialHistogram(maxSize, maxScale)`; no TLS, client or resource customization, see [Adapted and not ported](#adapted-and-not-ported) |
 | `influxdb`, `veneur`, the deprecated custom `otlp.Handler` | Not ported |
+
+### Adapted and not ported
+
+Everything else in segmentio/stats v5.11.0 is listed here. "Mapped" means a usable counterpart exists, not that the signature is the same. "Adapted" means the feature exists with a different behavior. "Not ported" means there is no counterpart.
+
+| segmentio/stats | Status | This library |
+|---|---|---|
+| `Engine.Incr`, `Add`, `Set`, `Observe(value)` | Mapped | `Increment`, `IncrementBy`, `Counter`, `Gauge` and `Histogram` on `*Client` (context first, error returned). Numeric `Observe(value)` is `Histogram`; `Client.Observe` takes only a `time.Duration` |
+| `IncrAt`, `AddAt`, `SetAt`, `ObserveAt` | Mapped | The same methods with `stats.WithTimestamp(t)`; `ReportAt` for structs |
+| `Tag`, `T`, `M` | Mapped | `attribute.KeyValue` values, `stats.WithAttribute(key, value)` and `stats.WithAttributes(map[string]string)` |
+| Duplicate tag keys with different values (`AllowDuplicateTags`) | Adapted | Duplicate keys collapse and the later value wins, so the same key cannot be sent twice with different values |
+| `DefaultEngine`, package-level `stats.Incr` and friends, `Register` | Not ported | Create a `*Client` and pass it (or a `Recorder`) around. Only `httpstats` and `netstats` keep a package default, set with `SetDefaultRecorder` |
+| `Measure`, `Field`, `MakeMeasures`, `Measure.Clone` | Not ported | `Report` records straight through a `Recorder`; there is no way to extract reusable measures. Recorded values are flattened `models.Metric` values |
+| `HistogramBuckets.SetUnprefixed` and suffix lookup | Not ported | Bucket registration matches exact metric names only (`WithHistogramBucketsFor`), so register the full name including any prefix |
+| Writer-backed `Buffer` and `BufferPoolSize` | Not ported | Exporters serialize and batch for themselves; there is no standalone buffer for a custom `io.Writer` |
+| `version` package (`Version`, `GoVersion`, `DevelGoVersion`) | Not ported | Only the `stats_version` and `go_version` gauges exist; no public helpers |
+| `on` as a value of `STATS_DISABLE_GO_VERSION_REPORTING` | Adapted | Only `true`, `TRUE`, `yes` and `1` disable version reporting; `on` has no effect |
+| `httpstats` header-count and header-byte histograms, request and response message counts, error counter | Not ported | Only duration, request and response body size and active requests are recorded. A failure shows as the `error.type` attribute, not as a counter |
+| `httpstats` content type, charset, encoding, host and `http_req_path` tags | Adapted | Standard OTel attributes instead (`http.request.method`, `http.response.status_code`, `url.scheme`, `http.route`, ...). Paths and URLs are never recorded |
+| `netstats` byte histograms of each `Read` and `Write` | Adapted | One observation per flush, a total, not a per-call size (see [netstats](#netstats)) |
+| `netstats.BaseConn` | Not ported | The wrapper embeds `net.Conn` only |
+| `netstats` errors of `SetDeadline`, `SetReadDeadline`, `SetWriteDeadline` | Not ported | The deadline calls pass through; `conn.error.count` only has the operations `read`, `write`, `close` and `accept` |
+| `netstats` automatic VPC and local zone discovery | Not ported | Zones come from `netstats.WithZones` or the `source_zone` and `target_zone` context tags |
+| `procstats.GoMetrics` | Adapted | Derived from `runtime/metrics` under `runtime.go.*` as gauges with absolute values, where segmentio sends counter deltas. Not emitted: CPU count, pointer lookup count and heap-from-system bytes. The cumulative allocation, malloc and free totals are `heap.allocs.*` and `heap.frees.*` |
+| `procstats.ProcMetrics` of any PID | Adapted | Only the current process. No PID argument and no raw process info |
+| `procstats` process CPU, memory and cgroup details | Adapted | `cpu.usage.seconds` by type and one `cpu.usage.percent` (CPU over wall time and `GOMAXPROCS`). No per-user and per-system percent, no total series, no resident memory percent, no virtual size, no cgroup CPU quota, period or shares. `memory.total.bytes` is the host or cgroup v2 memory capacity, not the process size. Darwin reads `getrusage` only |
+| `procstats/linux` (public procfs and cgroup readers and parsers) | Not ported | The readers are private to `runtimemetrics` |
+| `procstats.Collector`, `CollectorFunc`, `MultiCollector`, `StartCollector` | Not ported | The runtime, process and delay collectors are the built-in opt-ins; arbitrary collectors cannot be composed or scheduled |
+| `otlp` custom TLS roots, mTLS, HTTP and gRPC clients, connections and dial options | Not ported | TLS uses the system roots with TLS 1.2 as the minimum, or `Insecure`. `OTEL_EXPORTER_OTLP_CERTIFICATE` and the `CLIENT_*` variables have no effect |
+| `otlp` automatic host, process and SDK resource detection | Not ported | The resource holds `service.name`, `deployment.environment`, `service.version`, a hostname-based `service.instance.id` and what `OTEL_RESOURCE_ATTRIBUTES` and `WithOTLP` state |
+| `otlp` other `OTEL_*` variables, `lowmemory` temporality and a custom temporality selector | Not ported | Only the variables in [docs/usage.md](docs/usage.md#environment-variables) are read, `lowmemory` is rejected, and temporality is `cumulative` or `delta`. See the "Not supported" list there |
+| `debugstats.Client.Write` | Not ported | `debugstats.Exporter` writes through the pipeline only |
+| `datadog` metric and event `String` and `Format` | Not ported | `statstest.DogStatsDMetric` and `DogStatsDEvent` only parse what the test server receives |
+| `cmd/dogstatsd` | Not ported | `statstest.DogStatsDServer` is a library server, there is no command line tool |
+| `grafana`, `grafana/grafanatest` | Not ported | No counterpart |
+| `util/objconv` and its `json`, `objutil` and `objtests` packages | Not ported | No counterpart |
 
 Things that differ on purpose:
 
