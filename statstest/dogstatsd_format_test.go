@@ -24,8 +24,8 @@ func TestDogStatsDMetricString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want, tt.m.String())
-			require.Equal(t, tt.want, fmt.Sprint(tt.m))
-			require.Equal(t, tt.want, fmt.Sprintf("%v", &tt.m))
+			require.Equal(t, tt.want, sprint(tt.m))
+			require.Equal(t, tt.want, sprint(&tt.m))
 			got, ok := parseDogStatsDMetric(tt.want)
 			require.True(t, ok)
 			require.Equal(t, tt.want, got.String(), "round trip")
@@ -47,7 +47,7 @@ func TestDogStatsDEventString(t *testing.T) {
 	}
 	want := `_e{6,12}:deploy|line1\nline2|d:1700000000|h:h1|p:low|t:info|k:k|s:src|#env:prod`
 	require.Equal(t, want, e.String())
-	require.Equal(t, want, fmt.Sprint(e))
+	require.Equal(t, want, sprint(e))
 
 	got, ok := parseDogStatsDEvent(want)
 	require.True(t, ok)
@@ -56,3 +56,6 @@ func TestDogStatsDEventString(t *testing.T) {
 
 	require.Equal(t, "_e{1,0}:t|", DogStatsDEvent{Title: "t"}.String())
 }
+
+// sprint formats v through fmt, so the fmt.Formatter path is what is tested.
+func sprint(v any) string { return fmt.Sprint(v) }

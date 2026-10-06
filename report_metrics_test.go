@@ -77,7 +77,7 @@ func TestMakeMetricsAreReusable(t *testing.T) {
 	copyOf := made[0].Clone()
 	made[0].Attributes[0] = attribute.String("service", "changed")
 	require.Equal(t, "a", copyOf.Attributes[0].Value.AsString())
-	require.Equal(t, 1, int(made[0].Priority), "default priority")
+	require.Equal(t, 1, made[0].Priority, "default priority")
 }
 
 func TestMakeMetricsNilAndErrors(t *testing.T) {
