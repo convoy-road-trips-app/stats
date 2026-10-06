@@ -34,6 +34,10 @@ const (
 	opWrite  = "write"
 	opClose  = "close"
 	opAccept = "accept"
+
+	opSetDeadline      = "set-deadline"
+	opSetReadDeadline  = "set-read-deadline"
+	opSetWriteDeadline = "set-write-deadline"
 )
 
 // noZone is the zone value used when none is configured.
@@ -95,6 +99,8 @@ type config struct {
 	sourceZone    string
 	targetZone    string
 	flushInterval time.Duration
+	// discover enables address-based zone discovery for unset zones.
+	discover bool
 }
 
 // WithZones sets the source_zone and target_zone tags. An empty value leaves
@@ -119,9 +125,18 @@ func WithFlushInterval(d time.Duration) Option {
 	}
 }
 
+// WithZoneDiscovery turns address-based zone discovery on or off. It is on by
+// default: a zone left unset by WithZones and the context tags is taken from
+// the connection's addresses, as "loopback", "link-local", "private" or
+// "public" (see the package documentation). Turn it off to get "N/A" for
+// unset zones.
+func WithZoneDiscovery(enabled bool) Option {
+	return func(c *config) { c.discover = enabled }
+}
+
 // newConfig applies opts over the defaults.
 func newConfig(opts []Option) config {
-	cfg := config{flushInterval: defaultFlushInterval}
+	cfg := config{flushInterval: defaultFlushInterval, discover: true}
 	for _, o := range opts {
 		if o != nil {
 			o(&cfg)
@@ -130,9 +145,15 @@ func newConfig(opts []Option) config {
 	return cfg
 }
 
-// zones resolves the source and target zone: an explicit option wins, then the
-// context tags, then "N/A".
+// zones resolves the source and target zone without discovery: an explicit
+// option wins, then the context tags, then "N/A".
 func (c config) zones(ctx context.Context) (source, target string) {
+	return normalizeZones(c.explicitZones(ctx))
+}
+
+// explicitZones returns the zones set by option or context tag; an unset zone
+// is empty.
+func (c config) explicitZones(ctx context.Context) (source, target string) {
 	source, target = c.sourceZone, c.targetZone
 	if source != "" && target != "" {
 		return source, target
@@ -149,6 +170,11 @@ func (c config) zones(ctx context.Context) (source, target string) {
 			}
 		}
 	}
+	return source, target
+}
+
+// normalizeZones replaces an unset zone with "N/A".
+func normalizeZones(source, target string) (outSource, outTarget string) {
 	if source == "" {
 		source = noZone
 	}

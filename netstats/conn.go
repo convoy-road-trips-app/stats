@@ -32,6 +32,21 @@ func NewConnWith(r stats.Recorder, c net.Conn, opts ...Option) net.Conn {
 	return newConn(context.Background(), sink{r: r}, c, newConfig(opts))
 }
 
+// BaseConn is implemented by the connections NewConn, NewListener and
+// NewHandler return. BaseConn returns the connection that was wrapped, the
+// way segmentio/stats exposes it. Assert it on a net.Conn to reach the
+// underlying connection, and implement it on your own wrapper to keep the
+// chain reachable:
+//
+//	if bc, ok := c.(netstats.BaseConn); ok {
+//		tcp, _ := bc.BaseConn().(*net.TCPConn)
+//	}
+type BaseConn interface {
+	net.Conn
+	// BaseConn returns the wrapped connection.
+	BaseConn() net.Conn
+}
+
 // conn is the instrumented connection. Read and write counts live in atomics
 // and are drained by flush.
 type conn struct {
@@ -59,7 +74,7 @@ type conn struct {
 // newConn builds the wrapper, records the open, and picks the concrete type
 // that preserves the optional CloseRead and CloseWrite methods of c.
 func newConn(ctx context.Context, s sink, c net.Conn, cfg config) net.Conn {
-	source, target := cfg.zones(ctx)
+	source, target := cfg.connZones(ctx, c)
 	protocol := unknownProtocol
 	if a := c.LocalAddr(); a != nil {
 		protocol = a.Network()
@@ -116,6 +131,34 @@ func (c *conn) fail(operation string, err error) {
 		return
 	}
 	c.count(metricError, 1, stats.WithAttribute(tagOperation, operation))
+}
+
+// BaseConn returns the connection that was wrapped, so callers can reach
+// methods of the concrete type, such as SyscallConn or SetKeepAlive.
+func (c *conn) BaseConn() net.Conn { return c.Conn }
+
+// SetDeadline sets the read and write deadlines. A failure is counted as
+// conn.error.count{operation="set-deadline"}.
+func (c *conn) SetDeadline(t time.Time) error {
+	err := c.Conn.SetDeadline(t)
+	c.fail(opSetDeadline, err)
+	return err
+}
+
+// SetReadDeadline sets the read deadline. A failure is counted as
+// conn.error.count{operation="set-read-deadline"}.
+func (c *conn) SetReadDeadline(t time.Time) error {
+	err := c.Conn.SetReadDeadline(t)
+	c.fail(opSetReadDeadline, err)
+	return err
+}
+
+// SetWriteDeadline sets the write deadline. A failure is counted as
+// conn.error.count{operation="set-write-deadline"}.
+func (c *conn) SetWriteDeadline(t time.Time) error {
+	err := c.Conn.SetWriteDeadline(t)
+	c.fail(opSetWriteDeadline, err)
+	return err
 }
 
 // Read reads from the connection, counting the call and the bytes returned.

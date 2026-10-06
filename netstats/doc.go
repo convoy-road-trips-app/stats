@@ -14,13 +14,32 @@
 //	conn.error.count   counter    failed operations, with an operation tag
 //
 // Every metric carries the tags protocol (the local address network, such as
-// tcp), source_zone, target_zone and in_zone. A zone defaults to "N/A" and
-// in_zone to "false"; in_zone is "true" only when both zones are set and equal.
-// conn.error.count adds operation, one of read, write, close or accept.
+// tcp), source_zone, target_zone and in_zone. in_zone is "true" only when both
+// zones are set and equal.
 //
-// Zones come from WithZones, or, for a Handler, from the source_zone and
-// target_zone tags carried by the context (see stats.ContextWithTags). An
-// explicit WithZones value wins over the context.
+// conn.error.count adds operation, one of read, write, close, accept,
+// set-deadline, set-read-deadline or set-write-deadline. A failed SetDeadline,
+// SetReadDeadline or SetWriteDeadline is counted this way and its error is
+// returned unchanged.
+//
+// The connection returned by NewConn implements BaseConn, which returns the
+// wrapped connection.
+//
+// # Zones
+//
+// Each zone is resolved per side, in this order: WithZones; for a Handler, the
+// source_zone and target_zone tags carried by the context (see
+// stats.ContextWithTags); then address discovery; then "N/A".
+//
+// Address discovery names the source zone from the local address and the
+// target zone from the remote address: "loopback", "link-local", "private"
+// (RFC 1918, RFC 4193 and the RFC 6598 shared space 100.64.0.0/10) or
+// "public". A non-IP address, such as a Unix socket or net.Pipe, stays "N/A".
+// segmentio/stats instead looks up AWS availability zones with
+// github.com/segmentio/vpcinfo; this package has no such dependency, so
+// in_zone here means both ends are in the same class of network, not the same
+// availability zone. Use WithZones for real zone names, or WithZoneDiscovery
+// to turn discovery off.
 //
 // # Difference from segmentio/stats
 //
