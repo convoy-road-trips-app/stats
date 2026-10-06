@@ -32,7 +32,7 @@ type Exporter struct {
 
 var (
 	_ models.Exporter = (*Exporter)(nil)
-	_ io.Writer      = (*Exporter)(nil)
+	_ io.Writer       = (*Exporter)(nil)
 )
 
 // Name returns the exporter name.
