@@ -63,6 +63,13 @@ func ReportAt(ctx context.Context, r Recorder, t time.Time, v any, opts ...Metri
 	return Report(ctx, r, v, all...)
 }
 
+// valueRecorder is the part of Recorder that Report records through.
+type valueRecorder interface {
+	Counter(ctx context.Context, name string, value float64, opts ...MetricOption) error
+	Gauge(ctx context.Context, name string, value float64, opts ...MetricOption) error
+	Histogram(ctx context.Context, name string, value float64, opts ...MetricOption) error
+}
+
 // maxReportDepth bounds slice-in-slice and pointer-in-interface nesting of the
 // input, which can be cyclic at runtime even though struct types cannot be.
 const maxReportDepth = 32
@@ -77,7 +84,7 @@ var (
 
 // reportValue unwraps pointers and interfaces, fans out over slices and arrays
 // and reports each struct it reaches.
-func reportValue(ctx context.Context, r Recorder, rv reflect.Value, opts []MetricOption, depth int) error {
+func reportValue(ctx context.Context, r valueRecorder, rv reflect.Value, opts []MetricOption, depth int) error {
 	if depth > maxReportDepth {
 		return fmt.Errorf("%w: input nested deeper than %d levels", ErrUnsupportedReportField, maxReportDepth)
 	}
@@ -111,7 +118,7 @@ func reportValue(ctx context.Context, r Recorder, rv reflect.Value, opts []Metri
 	}
 }
 
-func (p *reportPlan) report(ctx context.Context, r Recorder, root reflect.Value, opts []MetricOption) error {
+func (p *reportPlan) report(ctx context.Context, r valueRecorder, root reflect.Value, opts []MetricOption) error {
 	var errs []error
 	for i := range p.scopes {
 		scope := &p.scopes[i]
@@ -155,7 +162,7 @@ func (s *reportScope) attributes(root reflect.Value) []attribute.KeyValue {
 	return attrs
 }
 
-func (l *reportLeaf) record(ctx context.Context, r Recorder, fv reflect.Value, opts []MetricOption) error {
+func (l *reportLeaf) record(ctx context.Context, r valueRecorder, fv reflect.Value, opts []MetricOption) error {
 	value := l.value(fv)
 	switch l.typ {
 	case MetricTypeCounter:

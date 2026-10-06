@@ -61,6 +61,20 @@ func (m *Metric) HasExemplar() bool {
 	return m.TraceID.IsValid() && m.SpanID.IsValid()
 }
 
+// Clone returns an independent copy of m with its own attribute slice. The
+// copy is not taken from the pool and may be kept, modified or recorded later;
+// a nil m clones to nil.
+func (m *Metric) Clone() *Metric {
+	if m == nil {
+		return nil
+	}
+	c := *m
+	if m.Attributes != nil {
+		c.Attributes = append([]attribute.KeyValue(nil), m.Attributes...)
+	}
+	return &c
+}
+
 // EstimateSize returns an estimate of the metric size in bytes
 func (m *Metric) EstimateSize() int64 {
 	size := int64(len(m.Name) + len(m.Description) + len(m.Unit))
