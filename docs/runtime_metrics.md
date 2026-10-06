@@ -123,6 +123,19 @@ Enabled with `stats.WithRuntimeProcessMetrics()` (implies `WithRuntimeMetrics()`
 
 A source that cannot be read is skipped for that collection and reported through `OnError("process", err)` at most once per source (surfacing as `ExporterErrors["runtimemetrics.process"]`).
 
+### Delay Metrics (Linux, opt-in)
+
+Enabled with `stats.WithRuntimeDelayMetrics()` (implies `WithRuntimeMetrics()`). They come from the Linux taskstats netlink interface for the current process, so they need **Linux, `CAP_NET_ADMIN` (or root) and kernel delay accounting enabled** (`CONFIG_TASK_DELAY_ACCT`, `sysctl kernel.task_delayacct=1` on kernels that default it off). These are **counters**: the kernel totals are cumulative, so each collection emits the increase since the previous one (the first collection emits the full total). A total that decreases is treated as a reset and emitted as-is; increments are never negative.
+
+| Metric Name | Description |
+|---|---|
+| `runtime.go.cpu.delay.seconds` | Time runnable but waiting for a CPU |
+| `runtime.go.blockio.delay.seconds` | Time waiting for synchronous block I/O |
+| `runtime.go.swapin.delay.seconds` | Time waiting for swap-in |
+| `runtime.go.freepages.delay.seconds` | Time waiting for memory reclaim (zero on kernels without the field) |
+
+If the first read fails (unsupported platform, `EPERM`, delay accounting off), the error is reported through `OnError("delay", err)` exactly once (surfacing as `ExporterErrors["runtimemetrics.delay"]`) and delay collection is disabled for the life of the client; it is never retried.
+
 ## Semantics: Why Gauges, Not Counters
 
 Several runtime values (CPU seconds, alloc bytes, GC cycles) are **cumulative since process start**. We emit them as absolute gauges rather than delta counters because:

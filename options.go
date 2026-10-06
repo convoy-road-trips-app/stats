@@ -315,3 +315,16 @@ func WithRuntimeProcessMetrics() Option {
 		c.RuntimeMetrics.ProcessMetrics = true
 	}
 }
+
+// WithRuntimeDelayMetrics enables kernel delay counters (cpu.delay.seconds,
+// blockio.delay.seconds, swapin.delay.seconds and freepages.delay.seconds) and
+// implies WithRuntimeMetrics. They come from Linux taskstats, which needs
+// CAP_NET_ADMIN (or root) and kernel delay accounting. If the first read
+// fails, including on every non-Linux platform, the failure is counted once in
+// ExporterErrors["runtimemetrics.delay"] and delay collection stays off.
+func WithRuntimeDelayMetrics() Option {
+	return func(c *Config) {
+		WithRuntimeMetrics()(c)
+		c.RuntimeMetrics.DelayMetrics = true
+	}
+}
