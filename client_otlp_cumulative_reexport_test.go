@@ -88,7 +88,7 @@ func (r *snapshotReceiver) complete(names ...string) []map[string]seriesSnapshot
 func TestClient_OTLPcumulative_reexports_every_series_in_intervals_without_observations(t *testing.T) {
 	// Given: a counter, a histogram and a gauge recorded once
 	receiver := newSnapshotReceiver(t)
-	client, err := NewClient(WithServiceName("reexport"), WithFlushInterval(20*time.Millisecond),
+	client, err := NewClient(WithServiceName("reexport"), WithFlushInterval(20*time.Millisecond), WithVersionReporting(false),
 		WithOTLP(&OTLPConfig{
 			Endpoint: strings.TrimPrefix(receiver.server.URL, "http://"),
 			Insecure: true,
