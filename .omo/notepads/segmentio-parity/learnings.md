@@ -65,3 +65,11 @@ Conventions, patterns, and successful approaches discovered during work on this 
 - testify `Eventually` runs its condition on its own goroutine, so a goroutine-leak assertion inside it counts the helper; poll by hand.
 - BSD `sed -i` needs `-i ''`; a failing `sed` in a `&&` chain silently skipped the test step and a commit still ran after `;`. Chain with `&&` all the way.
 - Verified on Linux by cross-compiling test binaries (`GOOS=linux GOARCH=arm64 go test -c`) and running them in `debian:stable-slim` under docker with `--cpus 1.5`: real `/proc`, cgroup v2 `cpu.max` (150000 100000) and `CollectProcInfo` of a child process all work.
+
+## gap-otlp-transport (TLS, escape hatches, resource detection, env gaps)
+- The worktree has no vendor/ directory on origin/feat/sp-38-docs (go builds from the module cache); no go.mod change was needed: grpc, otlpmetrichttp and sdk/resource were already required.
+- SDK facts used: otlpmetrichttp `WithHTTPClient` beats `WithTLSClientConfig`/`WithTimeout` and leaves the client's Timeout alone; otlpmetricgrpc `WithDialOption` options are appended after the SDK's own (credentials, compressor), so they can override them. `WithTLSClientConfig(nil)`/`WithTLSCredentials(nil)` still clear env TLS (D4).
+- TLS files are read in `exporters/otlp/tls.go`, only when the endpoint is secure; env resolution in the root package only fills `CAFile`/`ClientCertFile`/`ClientKeyFile` (new `OTLPOverrides` pointers, set by `WithOTLP` like the other transport fields).
+- Resource detection uses `resource.New` with host, PID, runtime name/version/description and telemetry SDK detectors, cached in a `sync.OnceValue`; command args, owner and executable path are left out (secrets). Tests that asserted exact resource attribute sets now count `detectedAttributes()` or filter the detected keys.
+- `lowmemory` == `delta` for this library: all sums are monotonic counters and up-down counters are exported as gauges, so no new `Temporality` value was added.
+- `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` has no generic form in the spec, so it is read through `envValue`, not `signalEnv`; it does not override stated `WithExponentialHistogram` or `WithHistogramBuckets`.

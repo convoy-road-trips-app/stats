@@ -183,11 +183,11 @@ Supported variables:
 
 - `OTEL_SDK_DISABLED`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`, `DEPLOYMENT_ENVIRONMENT`, `SERVICE_VERSION`
 - `OTEL_EXPORTER_OTLP_PROTOCOL` (`grpc` or `http/protobuf`; `http/json` is rejected), `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_INSECURE`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_TIMEOUT`, `OTEL_EXPORTER_OTLP_COMPRESSION`, and each of these with the `OTEL_EXPORTER_OTLP_METRICS_` prefix
-- `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` (`cumulative` or `delta`; `lowmemory` is rejected)
+- `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` (`cumulative`, `delta` or `lowmemory`, which is exported as delta)
 - `OTEL_METRIC_EXPORT_INTERVAL` (milliseconds; `WithFlushInterval` and `WithOTLPExportInterval` win)
 - `STATS_DISABLE_GO_VERSION_REPORTING` (this library's own, for the version gauges)
 
-Not supported, with no effect: `OTEL_EXPORTER_OTLP_CERTIFICATE`, the `OTEL_EXPORTER_OTLP_CLIENT_*` variables, `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION`, and any other `OTEL_*` variable. The endpoint, TLS mode, headers, timeout and compression handed to the SDK exporters are always the ones this library resolved, so SDK-side environment reading cannot change them. A malformed supported value makes `NewClient` return an error wrapping `stats.ErrInvalidConfig` that names the variable. Values and defaults are listed in [usage.md](usage.md#environment-variables).
+Also read: `OTEL_EXPORTER_OTLP_[METRICS_]CERTIFICATE`, `CLIENT_CERTIFICATE` and `CLIENT_KEY` (files read by this library, which passes the resulting `tls.Config` to the SDK), `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` (`explicit_bucket_histogram` or `base2_exponential_bucket_histogram`) and `OTEL_METRIC_EXPORT_TIMEOUT`. Not supported, with no effect: any other `OTEL_*` variable. The endpoint, TLS mode, headers, timeout and compression handed to the SDK exporters are always the ones this library resolved, so SDK-side environment reading cannot change them. A malformed supported value makes `NewClient` return an error wrapping `stats.ErrInvalidConfig` that names the variable. Values and defaults are listed in [usage.md](usage.md#environment-variables).
 
 ### OTEL_SDK_DISABLED
 
@@ -352,7 +352,7 @@ v1.1.0 is released as a minor version although it changes behavior observable by
 3. **No Readers**: Custom metric readers are not supported; export is push-only through the pipeline.
 4. **Units are not converted**: `Client.Timing` records milliseconds into a histogram, while the default buckets are in seconds. Use `Client.Observe` (a `time.Duration`, recorded in seconds) or `Histogram` with seconds, or set `WithHistogramBuckets`. `Timing` is unchanged; `Observe` is available through the optional `stats.DurationObserver` interface.
 5. **Counters accept negative values** in the legacy API (`Client.Counter`); they are not rejected.
-6. **OTLP environment configuration is partial**: only the variables listed under [Environment configuration](#environment-configuration) are read, and only when OTLP is enabled. TLS certificate and client-certificate variables and the histogram aggregation variable are not supported.
+6. **OTLP environment configuration is partial**: only the variables listed under [Environment configuration](#environment-configuration) are read, and only when OTLP is enabled. There is no custom temporality or aggregation selector.
 7. **Prometheus OTLP ingestion requires cumulative temporality** (the default); `WithTemporality(stats.Delta)` series are dropped by Prometheus' OTLP receiver.
 8. **Synchronous instruments drop description and unit**: `metric.WithDescription` / `metric.WithUnit` on synchronous OTel instruments are accepted but not exported; observable instruments export them.
 9. **Values are float64**: the pipeline carries every value as `float64`, so `Int64*` instruments (synchronous and observable) are exported as OTLP double points, and integers with magnitude above 2^53 (9007199254740992) are rounded to the nearest representable double.

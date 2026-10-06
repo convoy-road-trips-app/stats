@@ -220,6 +220,17 @@ Exporters that speak a UDP or Unix datagram protocol can embed `exporters.BaseEx
 | `WithHistogramBucketsFor(name, bounds...)` | none | explicit bounds for one metric name, overriding the global bounds; shared by the OTLP exporter and the Prometheus pull handler |
 | `WithExponentialHistogram(maxSize, maxScale)` | off | base-2 exponential histograms, see below |
 | `WithOTLPRetry(initial, max, maxElapsed)` | SDK default | retry retryable failures |
+| `WithOTLPTLSConfig(*tls.Config)` | system roots, TLS 1.2 minimum | base TLS configuration of a secure connection, HTTP and gRPC (cloned; a zero `MinVersion` becomes TLS 1.2). `OTLPConfig.TLSConfig` is the same field |
+| `WithOTLPCertificates(caFile, clientCertFile, clientKeyFile)` | none | PEM files read when the client is created: CA certificates that replace the system roots, and a client key pair for mutual TLS (both or neither). Each non-empty argument beats its `OTEL_EXPORTER_OTLP_*` variable; `OTLPConfig.CAFile`, `ClientCertFile` and `ClientKeyFile` are the same fields |
+| `WithOTLPHTTPClient(*http.Client)` | SDK client | HTTP only: send with your own client, which then owns TLS, proxying and connection limits; `OTLPConfig.HTTPClient` |
+| `WithOTLPGRPCDialOptions(...grpc.DialOption)` | none | gRPC only: appended after the options the exporter sets itself, so they can override credentials or the dialer; `OTLPConfig.GRPCDialOptions` |
+| `WithoutOTLPResourceDetection()` | detection on | turns off the automatic host, process and SDK resource attributes; `OTLPConfig.DisableResourceDetection` |
+
+TLS settings, the files and the escape hatches apply to secure connections only: with `Insecure` (or an `http://` endpoint) the TLS settings are ignored and their files are not read. `OTLPConfig.TLSConfig` is never weakened by the library: `InsecureSkipVerify` is true only if you set it in your own `tls.Config`. `CAFile` replaces `TLSConfig.RootCAs` and the client key pair is appended to `TLSConfig.Certificates`. With `HTTPClient`, the exporter does not apply any TLS setting or set the client's `Timeout` (`ExportTimeout` still bounds each export through its context); `WithOTLPHTTPClient` with the gRPC protocol, or `WithOTLPGRPCDialOptions` with HTTP, makes `NewClient` fail. `WithOTLP(&OTLPConfig{...})` copies `TLSConfig` and `GRPCDialOptions`; the `HTTPClient` is shared, not copied, and not closed by the exporter.
+
+#### Resource detection
+
+The OTLP resource carries `host.name`, `process.pid`, `process.runtime.name`, `process.runtime.version`, `process.runtime.description` and `telemetry.sdk.{name,language,version}`, detected once with the OTel SDK detectors. The process command line, owner and executable path are deliberately not collected. These attributes rank lowest: `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME` and the like, and `WithOTLPResourceAttributes` override them, and `service.instance.id` keeps its hostname default. Use `WithoutOTLPResourceDetection()` to export only the attributes you state (`process.pid` changes with every restart).
 | `WithOTLPResourceAttributes(attrs...)` | none | extra resource attributes; `OTEL_RESOURCE_ATTRIBUTES` is also read |
 
 #### Exponential histograms
@@ -275,7 +286,7 @@ The option and config types of this release are aliased in `stats` and defined i
 
 `OTEL_*` variables only fill in configuration. The environment never enables OTLP: use `WithOTLP`, or `WithOTLPFromEnv()` (`otel.NewMeterProviderFromEnv()` in OTel mode).
 
-**Precedence: explicit options win over environment variables, which win over defaults.** A signal-specific `OTEL_EXPORTER_OTLP_METRICS_*` variable wins over the generic `OTEL_EXPORTER_OTLP_*` one, and an empty value counts as unset. Note that `WithOTLP(&OTLPConfig{...})` states every transport field of the struct (endpoint, insecure, headers, timeout, compression, protocol, temporality), so a zero value in it also beats the environment. To take transport settings from the environment, use `WithOTLPFromEnv()` and override single settings with `WithOTLPExportTimeout`, `WithTemporality` and the like.
+**Precedence: explicit options win over environment variables, which win over defaults.** A signal-specific `OTEL_EXPORTER_OTLP_METRICS_*` variable wins over the generic `OTEL_EXPORTER_OTLP_*` one, and an empty value counts as unset. Note that `WithOTLP(&OTLPConfig{...})` states every transport field of the struct (endpoint, insecure, headers, timeout, compression, protocol, temporality, CA and client certificate files), so a zero value in it also beats the environment. To take transport settings from the environment, use `WithOTLPFromEnv()` and override single settings with `WithOTLPExportTimeout`, `WithTemporality` and the like.
 
 Supported variables:
 
@@ -290,14 +301,20 @@ Supported variables:
 | `OTEL_EXPORTER_OTLP_INSECURE`, `OTEL_EXPORTER_OTLP_METRICS_INSECURE` | `true` or `false` |
 | `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_METRICS_HEADERS` | `key=value,key2=value2`, keys and values percent-decoded |
 | `OTEL_EXPORTER_OTLP_TIMEOUT`, `OTEL_EXPORTER_OTLP_METRICS_TIMEOUT` | per-export deadline, a positive whole number of milliseconds |
+| `OTEL_METRIC_EXPORT_TIMEOUT` | the same per-export deadline (the reader's export timeout), used only when neither variable above is set |
+| `OTEL_EXPORTER_OTLP_CERTIFICATE`, `OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE` | PEM file of the CA certificates that sign the server certificate (replaces the system roots) |
+| `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE`, `OTEL_EXPORTER_OTLP_CLIENT_KEY` and their `_METRICS_` forms | PEM files of the client key pair for mutual TLS; set both |
 | `OTEL_EXPORTER_OTLP_COMPRESSION`, `OTEL_EXPORTER_OTLP_METRICS_COMPRESSION` | `gzip` or `none` |
-| `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` | `cumulative` or `delta`; `lowmemory` is rejected |
+| `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` | `cumulative`, `delta` or `lowmemory`. `lowmemory` (delta counters and histograms, cumulative up-down counters) is exported as `delta`, because every sum this library exports is a monotonic counter and up-down counters are exported as gauges |
+| `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` | `explicit_bucket_histogram` (default) or `base2_exponential_bucket_histogram`, which is `WithExponentialHistogram(0, 0)` (160 buckets, scale 20). `WithExponentialHistogram`, or explicit buckets from `WithHistogramBuckets`, win over it. Only the `_METRICS_` form exists |
 | `OTEL_METRIC_EXPORT_INTERVAL` | pipeline flush interval, a positive whole number of milliseconds; `WithFlushInterval` and `WithOTLPExportInterval` win |
 | `STATS_DISABLE_GO_VERSION_REPORTING` | `true`, `TRUE`, `yes` or `1` turns off the version gauges; `WithVersionReporting` wins |
 
-When OTLP is enabled, a malformed value of a supported `OTEL_EXPORTER_OTLP_*` or `OTEL_METRIC_EXPORT_INTERVAL` variable makes `NewClient` return an error wrapping `ErrInvalidConfig` that names the variable. A setting stated through an option is not read from the environment, so a bad variable cannot break a caller that overrode it.
+The certificate variables follow the same explicit-resolution rule as the rest: the library reads them into `OTLPConfig.CAFile`, `ClientCertFile` and `ClientKeyFile`, loads the files itself and hands the resulting `tls.Config` to the SDK exporter, which never reads the variables. A missing or malformed file makes `NewClient` fail; they are ignored for an insecure connection. Because `WithOTLP(&OTLPConfig{...})` states every field, a `WithOTLP` struct without `CAFile` ignores `OTEL_EXPORTER_OTLP_CERTIFICATE`; use `WithOTLPFromEnv()` plus `WithOTLPCertificates` to mix.
 
-Not supported, with no effect when set: `OTEL_EXPORTER_OTLP_CERTIFICATE`, the `OTEL_EXPORTER_OTLP_CLIENT_*` variables, `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` (use `WithExponentialHistogram`), and every other `OTEL_*` variable not listed above (for example `OTEL_METRICS_EXPORTER` and `OTEL_METRIC_EXPORT_TIMEOUT`). The library also passes the resolved endpoint, TLS mode, headers, timeout and compression to the SDK exporters explicitly, so a stray SDK variable cannot change them.
+When OTLP is enabled, a malformed value of a supported `OTEL_EXPORTER_OTLP_*`, `OTEL_METRIC_EXPORT_INTERVAL` or `OTEL_METRIC_EXPORT_TIMEOUT` variable makes `NewClient` return an error wrapping `ErrInvalidConfig` that names the variable. A setting stated through an option is not read from the environment, so a bad variable cannot break a caller that overrode it.
+
+Not supported, with no effect when set: every other `OTEL_*` variable not listed above (for example `OTEL_METRICS_EXPORTER`). There is no custom temporality or aggregation selector: temporality is one setting for all sums and histograms, and histograms are explicit or exponential. The library also passes the resolved endpoint, TLS mode, headers, timeout and compression to the SDK exporters explicitly, so a stray SDK variable cannot change them.
 
 ### OTEL_SDK_DISABLED
 
