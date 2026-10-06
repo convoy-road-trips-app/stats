@@ -1,0 +1,80 @@
+# 29 happy: timeout 10 go run ./examples/<x> (times include go build)
+=== httpstats ===
+GET /users/42 -> 200
+GET /users/43 -> 200
+GET /missing -> 404
+http.client.request.duration:0.000880334|h|#http.request.method:GET,http.response.status_code:200,server.address:127.0.0.1,server.port:59856,url.scheme:http
+http.server.request.duration:3.208e-06|h|#http.request.method:GET,http.response.status_code:200,http.route:/users/{id},network.protocol.version:1.1,url.scheme:http
+http.client.request.duration:9.9167e-05|h|#http.request.method:GET,http.response.status_code:200,server.address:127.0.0.1,server.port:59856,url.scheme:http
+http.server.request.duration:2.709e-06|h|#http.request.method:GET,http.response.status_code:404,network.protocol.version:1.1,url.scheme:http
+http.client.request.duration:8.35e-05|h|#http.request.method:GET,http.response.status_code:404,server.address:127.0.0.1,server.port:59856,url.scheme:http
+http.server.request.duration:1.0584e-05|h|#http.request.method:GET,http.response.status_code:200,http.route:/users/{id},network.protocol.version:1.1,url.scheme:http
+real 2.79
+user 0.42
+sys 0.44
+exit=0
+=== netstats ===
+echoed "ping"
+conn.read.bytes:4|h|#in_zone:true,protocol:tcp,source_zone:us-east-1a,target_zone:us-east-1a
+conn.write.bytes:4|h|#in_zone:true,protocol:tcp,source_zone:us-east-1a,target_zone:us-east-1a
+conn.close.count:1|c|#in_zone:true,protocol:tcp,source_zone:us-east-1a,target_zone:us-east-1a
+conn.read.bytes:4|h|#in_zone:true,protocol:tcp,source_zone:us-east-1a,target_zone:us-east-1a
+conn.write.bytes:4|h|#in_zone:true,protocol:tcp,source_zone:us-east-1a,target_zone:us-east-1a
+conn.close.count:1|c|#in_zone:true,protocol:tcp,source_zone:us-east-1a,target_zone:us-east-1a
+real 1.39
+user 0.43
+sys 0.47
+exit=0
+=== report ===
+requests:1|c|#route:/users/{id}
+latency:0.125|h|#route:/users/{id}
+in_flight:3|g|#route:/users/{id}
+failed:0|c|#route:/users/{id}
+cache.hits:7|c|#route:/users/{id}
+cache.misses:2|c|#route:/users/{id}
+requests:1|c|#route:/health,source:batch
+latency:0|h|#route:/health,source:batch
+in_flight:0|g|#route:/health,source:batch
+failed:0|c|#route:/health,source:batch
+cache.hits:0|c|#route:/health,source:batch
+cache.misses:0|c|#route:/health,source:batch
+requests:4|c|#route:/orders,source:batch
+latency:0|h|#route:/orders,source:batch
+in_flight:0|g|#route:/orders,source:batch
+failed:1|c|#route:/orders,source:batch
+cache.hits:0|c|#route:/orders,source:batch
+cache.misses:0|c|#route:/orders,source:batch
+real 1.35
+user 0.40
+sys 0.45
+exit=0
+=== prometheus-pull ===
+scraping http://127.0.0.1:59865/metrics
+# TYPE http_requests_total counter
+http_requests_total{method="GET"} 3
+real 1.36
+user 0.41
+sys 0.43
+exit=0
+=== debugstats ===
+--- every metric, as it is exported ---
+server.start:1|c
+http.requests:1|c|#method:GET
+queue.depth:12|g
+error.count:1|c|#kind:timeout
+--- only lines matching ^error\. ---
+error.count:1|c|#kind:timeout
+real 1.41
+user 0.42
+sys 0.45
+exit=0
+=== clock ===
+job.duration:0.005056167|h|#stamp:store
+job.duration:0.035400208|h|#stamp:total
+cleanup.duration:0.003|h
+job.duration:0.020177833|h|#stamp:transform
+job.duration:0.010156625|h|#stamp:load
+real 1.42
+user 0.39
+sys 0.43
+exit=0

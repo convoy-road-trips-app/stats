@@ -1,0 +1,6 @@
+$ go build ./examples/... && go vet ./examples/... && gofmt -l examples
+exit=0
+$ go run ./examples/prometheus-pull | grep _total
+# TYPE http_requests_total counter
+http_requests_total{method="GET"} 3
+git diff --stat go.mod go.sum:
