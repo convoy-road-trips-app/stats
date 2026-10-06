@@ -1,0 +1,5 @@
+Limit                     Soft Limit           Hard Limit           Units     
+Max cpu time              unlimited            unlimited            seconds   
+Max file size             unlimited            unlimited            bytes     
+Max open files            1024                 1048576              files     
+Max locked memory         65536                65536                bytes     

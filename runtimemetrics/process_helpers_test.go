@@ -13,6 +13,13 @@ import (
 	"github.com/convoy-road-trips-app/stats/models"
 )
 
+func fixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", name))
+	require.NoError(t, err)
+	return b
+}
+
 type fakeFS struct {
 	mu    sync.Mutex
 	files map[string][]byte

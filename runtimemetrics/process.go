@@ -1,6 +1,7 @@
 package runtimemetrics
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/convoy-road-trips-app/stats/models"
+	"github.com/convoy-road-trips-app/stats/runtimemetrics/procfs"
 )
 
 // Linux sources read by the process metrics.
@@ -24,6 +26,8 @@ const (
 // times in USER_HZ ticks, which is 100 on every mainstream architecture.
 // Reading it through sysconf(_SC_CLK_TCK) would need cgo, so it is a constant.
 const clockTicksPerSecond = 100
+
+var errNoOpenFilesLimit = errors.New("no open files limit in /proc/self/limits")
 
 // processSource abstracts the filesystem reads behind process metrics so
 // tests can inject fixtures.
@@ -106,19 +110,19 @@ func (c *Collector) collectProcStat() {
 		c.processFail(procStatPath, err)
 		return
 	}
-	st, err := parseProcStat(b)
+	st, err := procfs.ParseStat(b)
 	if err != nil {
 		c.processFail(procStatPath, err)
 		return
 	}
 
-	user := float64(st.utime) / clockTicksPerSecond
-	system := float64(st.stime) / clockTicksPerSecond
+	user := float64(st.Utime) / clockTicksPerSecond
+	system := float64(st.Stime) / clockTicksPerSecond
 	c.gauge("cpu.usage.seconds", user, typeAttr("user"))
 	c.gauge("cpu.usage.seconds", system, typeAttr("system"))
-	c.gauge("memory.pagefault.count", float64(st.majflt), typeAttr("major"))
-	c.gauge("memory.pagefault.count", float64(st.minflt), typeAttr("minor"))
-	c.gauge("threads.count", float64(st.numThreads))
+	c.gauge("memory.pagefault.count", float64(st.Majflt), typeAttr("major"))
+	c.gauge("memory.pagefault.count", float64(st.Minflt), typeAttr("minor"))
+	c.gauge("threads.count", float64(st.NumThreads))
 
 	c.emitCPUPercent(user + system)
 }
@@ -145,7 +149,7 @@ func (c *Collector) collectProcStatus() {
 		c.processFail(procStatusPath, err)
 		return
 	}
-	kv := parseKeyValues(b)
+	kv := procfs.KeyValues(b)
 
 	if v, ok := kv["VmRSS"]; ok {
 		c.gauge("memory.usage.bytes", float64(v), typeAttr("resident"))
@@ -175,13 +179,16 @@ func (c *Collector) collectLimits() {
 		c.processFail(procLimitsPath, err)
 		return
 	}
-	limit, unlimited, err := parseOpenFilesLimit(b)
+	limits, err := procfs.ParseLimits(b)
 	if err != nil {
 		c.processFail(procLimitsPath, err)
 		return
 	}
-	if !unlimited {
-		c.gauge("files.open.max", float64(limit))
+	switch open := limits.OpenFiles; {
+	case open.Name == "":
+		c.processFail(procLimitsPath, errNoOpenFilesLimit)
+	case open.Soft != procfs.Unlimited:
+		c.gauge("files.open.max", float64(open.Soft))
 	}
 }
 
@@ -200,7 +207,7 @@ func (c *Collector) collectSystemMemory() {
 		c.processFail(procMeminfoPath, err)
 		return
 	}
-	kv := parseKeyValues(b)
+	kv := procfs.KeyValues(b)
 
 	if v, ok := kv["MemAvailable"]; ok {
 		c.gauge("memory.available.bytes", float64(v))
@@ -212,7 +219,7 @@ func (c *Collector) collectSystemMemory() {
 	// cgroup v2 may cap memory below the host total. A missing file (cgroup
 	// v1, no cgroup mount) is normal and not an error.
 	if mb, err := c.proc.src.readFile(cgroupMemoryMax); err == nil {
-		if limit, ok := parseCgroupMemoryMax(mb); ok && limit < total {
+		if limit, ok, err := procfs.ParseMemoryLimit(mb); err == nil && ok && limit < total {
 			total = limit
 		}
 	}

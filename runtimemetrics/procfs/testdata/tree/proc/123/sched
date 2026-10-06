@@ -1,0 +1,11 @@
+my app (123, #threads: 8)
+-------------------------------------------------------------------
+se.exec_start                                :       1234567.890123
+se.sum_exec_runtime                          :          4200.123456
+nr_switches                                  :                 9000
+nr_voluntary_switches                        :                 7000
+nr_involuntary_switches                      :                 2000
+se.avg.load_sum                              :                  111
+se.avg.util_sum                              :                  222
+se.avg.load_avg                              :                    3
+se.avg.util_avg                              :                    4
