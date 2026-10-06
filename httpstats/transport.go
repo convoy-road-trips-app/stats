@@ -136,8 +136,10 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		start:   start,
 		attrs:   requestAttrs(req),
 		reqBody: body,
-		reqHdr:  req.Header,
 	}
+	// Measure the headers now: they are caller-owned maps that may be mutated
+	// after the round trip, so they are never retained.
+	m.reqHdr.count, m.reqHdr.size = headerStats(req.Header)
 	if t.cfg.contentAttrs {
 		m.attrs = append(m.attrs, contentAttrs(req.Header, req.TransferEncoding, keyReqContentType, keyReqContentEncoding, keyReqTransferEncoding)...)
 	}
@@ -151,7 +153,8 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, nil //nolint:nilnil // a misbehaving RoundTripper's result is passed through
 	}
 	m.status = resp.StatusCode
-	m.resHdr, m.hasResp = resp.Header, true
+	m.resHdr.count, m.resHdr.size = headerStats(resp.Header)
+	m.hasResp = true
 	if t.cfg.contentAttrs {
 		m.attrs = append(m.attrs, contentAttrs(resp.Header, resp.TransferEncoding, keyResContentType, keyResContentEncoding, keyResTransferEncoding)...)
 	}
@@ -211,10 +214,11 @@ type clientMeasure struct {
 	// reqBody and respBody count the bytes of each body; nil when there is none.
 	reqBody  *countingBody
 	respBody *countingBody
-	// reqHdr and resHdr are the request and response headers; hasResp is false
-	// when no response arrived.
-	reqHdr  http.Header
-	resHdr  http.Header
+	// reqHdr and resHdr are the request and response header measurements,
+	// taken before the headers can be mutated; hasResp is false when no
+	// response arrived.
+	reqHdr  headerMeasure
+	resHdr  headerMeasure
 	hasResp bool
 	once    sync.Once
 }
@@ -249,9 +253,9 @@ func (m *clientMeasure) finish(cause error) {
 		_ = observeDuration(m.ctx, m.rec, clientDuration, elapsed, opts, stats.WithUnit(unitSeconds))
 		_ = m.rec.Histogram(m.ctx, clientRequestSize, float64(sent), opts, stats.WithUnit(unitBytes))
 		_ = m.rec.Histogram(m.ctx, clientResponseSize, float64(read), opts, stats.WithUnit(unitBytes))
-		recordHeaders(m.ctx, m.rec, clientPrefix, suffixRequestHeaderSize, suffixRequestHeaderCount, m.reqHdr, opts)
+		recordHeaderStats(m.ctx, m.rec, clientPrefix, suffixRequestHeaderSize, suffixRequestHeaderCount, m.reqHdr, opts)
 		if m.hasResp {
-			recordHeaders(m.ctx, m.rec, clientPrefix, suffixResponseHeaderSize, suffixResponseHeaderCount, m.resHdr, opts)
+			recordHeaderStats(m.ctx, m.rec, clientPrefix, suffixResponseHeaderSize, suffixResponseHeaderCount, m.resHdr, opts)
 		}
 		if failed {
 			recordError(m.ctx, m.rec, clientPrefix, opts)

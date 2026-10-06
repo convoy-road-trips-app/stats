@@ -97,8 +97,17 @@ func headerStats(h http.Header) (count, size int64) {
 // (suffixes name them) under prefix ("http.server" or "http.client").
 func recordHeaders(ctx context.Context, rec stats.Recorder, prefix, sizeSuffix, countSuffix string, h http.Header, opts stats.MetricOption) {
 	count, size := headerStats(h)
-	_ = rec.Histogram(ctx, prefix+sizeSuffix, float64(size), opts, stats.WithUnit(unitBytes))
-	_ = rec.Histogram(ctx, prefix+countSuffix, float64(count), opts, stats.WithUnit(unitHeaders))
+	recordHeaderStats(ctx, rec, prefix, sizeSuffix, countSuffix, headerMeasure{count: count, size: size}, opts)
+}
+
+// headerMeasure is the count and size of a header set taken at one moment, so
+// that the headers themselves need not be retained.
+type headerMeasure struct{ count, size int64 }
+
+// recordHeaderStats is recordHeaders for an already measured header set.
+func recordHeaderStats(ctx context.Context, rec stats.Recorder, prefix, sizeSuffix, countSuffix string, h headerMeasure, opts stats.MetricOption) {
+	_ = rec.Histogram(ctx, prefix+sizeSuffix, float64(h.size), opts, stats.WithUnit(unitBytes))
+	_ = rec.Histogram(ctx, prefix+countSuffix, float64(h.count), opts, stats.WithUnit(unitHeaders))
 }
 
 // recordError records the error counter prefix+".error.count" with one failure.
