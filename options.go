@@ -301,6 +301,22 @@ func WithHistogramBucketsFor(name string, bounds ...float64) Option {
 	}
 }
 
+// WithUnprefixedHistogramBucketsFor is like WithHistogramBucketsFor, but the
+// bounds also apply to every metric whose name ends in ".name", whatever prefix
+// the client adds, so bounds registered for "request.duration" serve
+// "myapp.request.duration" too. It is meant for code that instruments a
+// library and cannot know the prefix its metrics end up under.
+//
+// Precedence for a metric name: an exact WithHistogramBucketsFor entry, then
+// the unprefixed entry of the longest matching suffix (the full name counts
+// as the longest), then WithHistogramBuckets, then the defaults. Matching by
+// suffix cannot tell a derived name from an unrelated one that ends the same
+// way, which is why it is opt-in. Bounds are validated and copied like
+// WithHistogramBucketsFor.
+func WithUnprefixedHistogramBucketsFor(name string, bounds ...float64) Option {
+	return WithHistogramBucketsFor(models.UnprefixedBucketsKey(name), bounds...)
+}
+
 // WithExponentialHistogram makes OTLP export histograms as base-2 exponential
 // histograms instead of explicit buckets. Every series starts at scale
 // maxScale, in [-10, 20], and is downscaled when its values need more than

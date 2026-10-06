@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -205,17 +206,55 @@ func ValidateHistogramBuckets(bounds []float64) error {
 	return nil
 }
 
-// BucketsFor returns the histogram bounds for a metric name: the per-name
-// entry, then the global bounds, then DefaultHistogramBuckets(). Bounds use
-// the units the metric is recorded in.
+// UnprefixedBucketsPrefix marks a BucketsFor registration made for a metric
+// name without the prefix a client adds to it. Use UnprefixedBucketsKey to
+// build the key; WithUnprefixedHistogramBucketsFor does so for you.
+const UnprefixedBucketsPrefix = "*."
+
+// UnprefixedBucketsKey returns the byName key that registers bounds for name
+// and for every name that ends in ".name", whatever prefix a client puts in
+// front of it.
+func UnprefixedBucketsKey(name string) string {
+	return UnprefixedBucketsPrefix + name
+}
+
+// BucketsFor returns the histogram bounds for a metric name. Precedence:
+//
+//  1. the exact per-name entry;
+//  2. an unprefixed entry (see UnprefixedBucketsKey), trying the full name and
+//     then each suffix that starts after a "." separator, longest first, so
+//     an entry for "request.duration" also serves "myapp.request.duration";
+//  3. the global bounds;
+//  4. DefaultHistogramBuckets().
+//
+// A plain entry never matches by suffix: only entries registered as unprefixed
+// do. Bounds use the units the metric is recorded in.
 func BucketsFor(byName map[string][]float64, global []float64, name string) []float64 {
 	if bounds := byName[name]; len(bounds) > 0 {
+		return bounds
+	}
+	if bounds := unprefixedBuckets(byName, name); len(bounds) > 0 {
 		return bounds
 	}
 	if len(global) > 0 {
 		return global
 	}
 	return DefaultHistogramBuckets()
+}
+
+// unprefixedBuckets resolves name against the unprefixed entries of byName,
+// longest matching suffix first.
+func unprefixedBuckets(byName map[string][]float64, name string) []float64 {
+	for {
+		if bounds := byName[UnprefixedBucketsKey(name)]; len(bounds) > 0 {
+			return bounds
+		}
+		i := strings.IndexByte(name, '.')
+		if i < 0 {
+			return nil
+		}
+		name = name[i+1:]
+	}
 }
 
 // Validate validates the OTLP configuration

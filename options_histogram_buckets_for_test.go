@@ -1,9 +1,12 @@
 package stats
 
 import (
+	"context"
 	"math"
 	"testing"
+	"time"
 
+	"github.com/convoy-road-trips-app/stats/exporters/prometheus"
 	"github.com/convoy-road-trips-app/stats/models"
 	"github.com/stretchr/testify/require"
 )
@@ -73,4 +76,49 @@ func TestBucketsForPrecedence(t *testing.T) {
 	require.Equal(t, []float64{5, 6}, models.BucketsFor(nil, global, "other"))
 	require.Equal(t, models.DefaultHistogramBuckets(), models.BucketsFor(byName, nil, "other"))
 	require.Equal(t, models.DefaultHistogramBuckets(), models.BucketsFor(nil, nil, "other"))
+}
+
+func TestBucketsForUnprefixed(t *testing.T) {
+	byName := map[string][]float64{
+		"app.request.duration":                          {1},
+		models.UnprefixedBucketsKey("request.duration"): {2},
+		models.UnprefixedBucketsKey("duration"):         {3},
+		"plain":                                         {4},
+	}
+	global := []float64{9}
+
+	require.Equal(t, []float64{1}, models.BucketsFor(byName, global, "app.request.duration"), "exact beats suffix")
+	require.Equal(t, []float64{2}, models.BucketsFor(byName, global, "request.duration"), "full name is the longest suffix")
+	require.Equal(t, []float64{2}, models.BucketsFor(byName, global, "myapp.request.duration"), "longest suffix wins")
+	require.Equal(t, []float64{3}, models.BucketsFor(byName, global, "myapp.db.duration"))
+	require.Equal(t, global, models.BucketsFor(byName, global, "myapp.latency"))
+	require.Equal(t, global, models.BucketsFor(byName, global, "myplain"), "no boundary match")
+	require.Equal(t, global, models.BucketsFor(byName, global, "myapp.plain"), "plain entries are exact only")
+	require.Equal(t, []float64{3}, models.BucketsFor(byName, global, "xrequest.duration"), "request.duration does not match mid-segment; duration does")
+	require.Equal(t, global, models.BucketsFor(byName, global, "xduration"), "suffix must start at a segment")
+}
+
+func TestWithUnprefixedHistogramBucketsFor(t *testing.T) {
+	cfg := DefaultConfig()
+	WithUnprefixedHistogramBucketsFor("request.duration", 1, 2)(cfg)
+	require.Equal(t, []float64{1, 2}, cfg.HistogramBucketsByName["*.request.duration"])
+
+	_, err := NewClient(WithUnprefixedHistogramBucketsFor("m", 2, 1))
+	require.Error(t, err)
+}
+
+func TestUnprefixedBucketsReachPrometheusHandler(t *testing.T) {
+	h := &prometheus.Handler{}
+	client, err := NewClient(WithFlushInterval(time.Hour), WithPrometheusHandler(h),
+		WithUnprefixedHistogramBucketsFor("request.duration", 1, 2))
+	require.NoError(t, err)
+	defer client.Close()
+
+	ctx := context.Background()
+	require.NoError(t, client.Histogram(ctx, "myapp.request.duration", 0.5))
+	require.NoError(t, client.Flush(ctx))
+	body := scrape(t, h)
+	require.Contains(t, body, `myapp_request_duration_bucket{le="1"} 1`+"\n")
+	require.Contains(t, body, `myapp_request_duration_bucket{le="2"} 1`+"\n")
+	require.NotContains(t, body, `le="0.005"`)
 }

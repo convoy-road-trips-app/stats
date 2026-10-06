@@ -60,3 +60,16 @@ func TestOTLPConfig_Validate_rejects_invalid_per_name_buckets(t *testing.T) {
 	// Then
 	require.ErrorContains(t, err, `"a"`)
 }
+
+func TestOTLPUnprefixedBucketsMatchBySuffix(t *testing.T) {
+	exporter, received := wireExporter(t, &models.OTLPConfig{
+		BucketsByName: map[string][]float64{models.UnprefixedBucketsKey("request.duration"): {1, 2}},
+	})
+
+	require.NoError(t, exporter.Export(context.Background(), []*models.Metric{
+		{Name: "myapp.request.duration", Type: models.MetricTypeHistogram, Value: 1.5, Timestamp: time.Now()},
+	}))
+
+	dp := wireMetric(t, <-received, "myapp.request.duration").GetHistogram().DataPoints[0]
+	require.Equal(t, []float64{1, 2}, dp.ExplicitBounds)
+}
