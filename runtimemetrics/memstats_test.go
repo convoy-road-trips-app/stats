@@ -84,7 +84,7 @@ func TestExistingNamesUnchanged(t *testing.T) {
 		}
 	}
 	for _, d := range getDerivedMappings() {
-		got[d.name] = "derived"
+		got[d.metricName] = "derived"
 	}
 	for _, n := range golden {
 		assert.Contains(t, got, n)
