@@ -9,15 +9,13 @@ import (
 	"regexp"
 	"sync"
 
+	"github.com/convoy-road-trips-app/stats/exporters"
 	"github.com/convoy-road-trips-app/stats/models"
-	"github.com/convoy-road-trips-app/stats/serializers"
 )
 
-// serializer renders `name:value|type|#k:v,...` lines. The DogStatsD
-// serializer is used because the plain StatsD one folds attributes into the
-// metric name instead of emitting tags. It holds no per-call state, so one
-// instance is shared.
-var serializer = serializers.NewDogStatsDSerializer(nil)
+// serializer renders `name:value|type|#k:v,...` lines. It holds no per-call
+// state, so one instance is shared.
+var serializer = exporters.NewLineSerializer()
 
 // Exporter writes one StatsD-format line per metric, such as
 // `server.start:1|c` or `http.requests:1|c|#method:GET`. It is safe for
