@@ -117,6 +117,9 @@ func newGRPCExporter(config *models.OTLPConfig) (*otlpmetricgrpc.Exporter, error
 	} else {
 		opts = append(opts, otlpmetricgrpc.WithTLSCredentials(credentials.NewTLS(tlsConfig)))
 	}
+	if len(config.GRPCDialOptions) > 0 {
+		opts = append(opts, otlpmetricgrpc.WithDialOption(config.GRPCDialOptions...))
+	}
 	if r := config.Retry; r != nil {
 		opts = append(opts, otlpmetricgrpc.WithRetry(otlpmetricgrpc.RetryConfig{
 			Enabled: true, InitialInterval: r.InitialInterval, MaxInterval: r.MaxInterval, MaxElapsedTime: r.MaxElapsedTime,
@@ -182,6 +185,9 @@ func newHTTPExporter(config *models.OTLPConfig) (*otlpmetrichttp.Exporter, error
 		opts = append(opts, otlpmetrichttp.WithTLSClientConfig(nil))
 	} else {
 		opts = append(opts, otlpmetrichttp.WithTLSClientConfig(tlsConfig))
+	}
+	if config.HTTPClient != nil {
+		opts = append(opts, otlpmetrichttp.WithHTTPClient(config.HTTPClient))
 	}
 	if r := config.Retry; r != nil {
 		opts = append(opts, otlpmetrichttp.WithRetry(otlpmetrichttp.RetryConfig{

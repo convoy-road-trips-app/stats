@@ -4,11 +4,13 @@ import (
 	"cmp"
 	"crypto/tls"
 	"maps"
+	"net/http"
 	"slices"
 	"time"
 
 	"github.com/convoy-road-trips-app/stats/models"
 	"go.opentelemetry.io/otel/attribute"
+	"google.golang.org/grpc"
 )
 
 // ref returns a pointer to a copy of v, for OTLPOverrides fields.
@@ -232,6 +234,7 @@ func WithOTLP(cfg *OTLPConfig) Option {
 			merged.ExponentialHistogram = ref(*cfg.ExponentialHistogram)
 		}
 		merged.TLSConfig = cfg.TLSConfig.Clone()
+		merged.GRPCDialOptions = slices.Clone(cfg.GRPCDialOptions)
 		if c.OTLP != nil {
 			if merged.HistogramBuckets == nil {
 				merged.HistogramBuckets = c.OTLP.HistogramBuckets
@@ -243,6 +246,10 @@ func WithOTLP(cfg *OTLPConfig) Option {
 			merged.DeploymentEnvironment = cmp.Or(merged.DeploymentEnvironment, c.OTLP.DeploymentEnvironment)
 			merged.Retry = cmp.Or(merged.Retry, c.OTLP.Retry)
 			merged.TLSConfig = cmp.Or(merged.TLSConfig, c.OTLP.TLSConfig)
+			merged.HTTPClient = cmp.Or(merged.HTTPClient, c.OTLP.HTTPClient)
+			if merged.GRPCDialOptions == nil {
+				merged.GRPCDialOptions = c.OTLP.GRPCDialOptions
+			}
 			merged.ExponentialHistogram = cmp.Or(merged.ExponentialHistogram, c.OTLP.ExponentialHistogram)
 		}
 		merged.Enabled = true
@@ -349,6 +356,30 @@ func WithOTLPCertificates(caFile, clientCertFile, clientKeyFile string) Option {
 				*f.target, *f.override = f.value, ref(f.value)
 			}
 		}
+	}
+}
+
+// WithOTLPHTTPClient makes the OTLP/HTTP exporter send with client, which then
+// owns TLS, proxying and connection limits (see OTLPConfig.HTTPClient).
+// Validation rejects it for the gRPC protocol.
+func WithOTLPHTTPClient(client *http.Client) Option {
+	return func(c *Config) {
+		if c.OTLP == nil {
+			c.OTLP = &OTLPConfig{}
+		}
+		c.OTLP.HTTPClient = client
+	}
+}
+
+// WithOTLPGRPCDialOptions appends grpc.DialOptions to the ones the OTLP/gRPC
+// exporter sets itself (see OTLPConfig.GRPCDialOptions). Validation rejects
+// them for the HTTP protocol.
+func WithOTLPGRPCDialOptions(opts ...grpc.DialOption) Option {
+	return func(c *Config) {
+		if c.OTLP == nil {
+			c.OTLP = &OTLPConfig{}
+		}
+		c.OTLP.GRPCDialOptions = append(slices.Clone(c.OTLP.GRPCDialOptions), opts...)
 	}
 }
 

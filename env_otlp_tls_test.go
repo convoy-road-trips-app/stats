@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 )
 
 // selfSigned writes a self-signed certificate valid for 127.0.0.1 that can act
@@ -152,4 +153,25 @@ func TestClient_OTLPTLSConfigOption(t *testing.T) {
 		require.FailNow(t, "no export reached the collector")
 	}
 	require.NoError(t, client.Shutdown(ctx))
+}
+
+func TestEscapeHatchOptions(t *testing.T) {
+	httpClient := &http.Client{}
+	cfg := newConfigFrom(t,
+		WithOTLPHTTPClient(httpClient),
+		WithOTLP(&OTLPConfig{Endpoint: "c:4318", Protocol: OTLPProtocolHTTP}),
+	)
+	require.Same(t, httpClient, cfg.OTLP.HTTPClient, "WithOTLP keeps an earlier dedicated client")
+
+	cfg = newConfigFrom(t,
+		WithOTLP(&OTLPConfig{Endpoint: "c:4317"}),
+		WithOTLPGRPCDialOptions(grpc.WithUserAgent("a")),
+		WithOTLPGRPCDialOptions(grpc.WithUserAgent("b")),
+	)
+	require.Len(t, cfg.OTLP.GRPCDialOptions, 2)
+}
+
+func TestEscapeHatchProtocolMismatchFailsNewClient(t *testing.T) {
+	_, err := NewClient(WithOTLP(&OTLPConfig{Endpoint: "c:4317"}), WithOTLPHTTPClient(&http.Client{}))
+	require.ErrorContains(t, err, "HTTPClient")
 }

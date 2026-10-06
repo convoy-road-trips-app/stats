@@ -4,9 +4,11 @@ import (
 	"crypto/tls"
 	"fmt"
 	"math"
+	"net/http"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"google.golang.org/grpc"
 )
 
 // OTLPProtocol selects the transport for the OTLP exporter.
@@ -69,6 +71,20 @@ type OTLPConfig struct {
 	// pair for mutual TLS; either both or neither must be set.
 	ClientCertFile string
 	ClientKeyFile  string
+	// HTTPClient, for the HTTP protocol only, is the client the exporter sends
+	// requests with. The exporter then neither builds its own transport nor
+	// applies TLSConfig, CAFile, ClientCertFile or ClientKeyFile (the client
+	// owns TLS, proxying and connection limits), and does not set the client's
+	// Timeout; ExportTimeout still bounds each export through its context.
+	// Endpoint, path, headers, compression and retry still apply. The client
+	// is shared, not copied, and not closed by the exporter. An insecure
+	// endpoint is plain HTTP regardless of the client.
+	HTTPClient *http.Client
+	// GRPCDialOptions, for the gRPC protocol only, are appended after the
+	// options the exporter sets itself (user agent, credentials, compressor,
+	// connection parameters), so they can override them, for example with
+	// grpc.WithTransportCredentials or grpc.WithContextDialer.
+	GRPCDialOptions []grpc.DialOption
 }
 
 // Defaults of OTLPExponentialHistogram, the OTel SDK defaults for base-2
@@ -223,6 +239,13 @@ func (c *OTLPConfig) Validate() error {
 	}
 	if (c.ClientCertFile == "") != (c.ClientKeyFile == "") {
 		return fmt.Errorf("client certificate and client key must be set together")
+	}
+
+	if c.HTTPClient != nil && c.Protocol != OTLPProtocolHTTP {
+		return fmt.Errorf("HTTPClient requires the %q protocol", OTLPProtocolHTTP)
+	}
+	if len(c.GRPCDialOptions) > 0 && c.Protocol == OTLPProtocolHTTP {
+		return fmt.Errorf("GRPCDialOptions requires the %q protocol", OTLPProtocolGRPC)
 	}
 
 	if c.Endpoint == "" {
