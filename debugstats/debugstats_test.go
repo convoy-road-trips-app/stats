@@ -114,3 +114,38 @@ func TestDebugConcurrentNoInterleave(t *testing.T) {
 		}
 	}
 }
+
+func TestDebugWriteGoesToDstUnchanged(t *testing.T) {
+	var buf bytes.Buffer
+	e := &debugstats.Exporter{Dst: &buf}
+
+	n, err := e.Write([]byte("hello\n"))
+	if err != nil || n != 6 {
+		t.Fatalf("Write = %d, %v", n, err)
+	}
+	if err := e.Export(context.Background(), []*models.Metric{counter("a", 1)}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := buf.String(), "hello\na:1|c\n"; got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestDebugWriteConcurrent(t *testing.T) {
+	var buf bytes.Buffer // not safe for concurrent use: Write must serialize
+	e := &debugstats.Exporter{Dst: &buf}
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 50 {
+				_, _ = e.Write([]byte("x\n"))
+			}
+		}()
+	}
+	wg.Wait()
+	if got := strings.Count(buf.String(), "x\n"); got != 400 {
+		t.Fatalf("got %d lines", got)
+	}
+}
