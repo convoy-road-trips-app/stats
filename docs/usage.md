@@ -307,7 +307,7 @@ When `OTEL_SDK_DISABLED` is `true`, `NewClient` and `otel.NewMeterProvider` star
 
 | Package | Purpose |
 |---|---|
-| `httpstats` | server middleware and client transport with the standard OTel HTTP metric names; `http.route` is the route template and is omitted when unset, and paths and URLs are never recorded |
+| `httpstats` | server middleware and client transport with the standard OTel HTTP metric names; `http.route` is the route template and is omitted when unset, and paths and URLs are never recorded; also header count and size histograms and an error counter, and content attributes with `httpstats.WithContentAttributes()` |
 | `netstats` | `net.Conn`, `net.Listener` and connection-handler wrappers (`conn.*` metrics). Unlike segmentio, read and write totals are batched and flushed on close and every 10 s, not recorded per call |
 | `iostats` | `CountReader`, `CountWriter`, `ReaderFunc`, `WriterFunc`, `CloserFunc` |
 | `statstest` | `NewClient(t)` with a capturing `Exporter` (`Metrics`, `Clear`, `FlushCalls`), `Flush(t, client)`, and `DogStatsDServer` / `NewDogStatsDServer(t, handler)` to assert on the bytes a client sends. A `DogStatsDHandler` has `HandleMetric(DogStatsDMetric, from)` and `HandleEvent(DogStatsDEvent, from)`; `DogStatsDHandlerFunc` receives a `DogStatsDMessage`. Metric types are `DogStatsDMetricType` values (`DogStatsDCounter`, `DogStatsDGauge`, `DogStatsDHistogram`, `DogStatsDDistribution`, `DogStatsDSet`, `DogStatsDTiming`); `statstest.NewExporter()` is the bare capturing `Exporter` |

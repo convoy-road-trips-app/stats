@@ -50,3 +50,8 @@ Conventions, patterns, and successful approaches discovered during work on this 
 ## gap-netstats
 - Upstream zone discovery (conn.go zoneOf/currentZone) uses github.com/segmentio/vpcinfo (AWS metadata subnets -> AZ names), not address inspection. Only an offline address-class equivalent is possible without a dependency; in_zone then means same network class, not same AZ.
 - Upstream `BaseConn()` is just a method on the unexported conn. An exported interface named BaseConn cannot be embedded in a struct and still expose the method (field name shadows it), so users implement it rather than embed it.
+
+## httpstats gap closure
+- Tag keys must match `^[a-zA-Z_][a-zA-Z0-9_]*(\.…)*$`, so a `-` in a key (e.g. `http.request.header.content-type`) makes `validTagKey` reject the whole metric silently; use `content_type`.
+- `NewHandler*`/`NewTransport*` gained variadic `...Option` (`WithContentAttributes`); source compatible, but not for code that stores them in a func-typed variable.
+- Request/response counts deliberately not added: duration histogram count already is the request count.
