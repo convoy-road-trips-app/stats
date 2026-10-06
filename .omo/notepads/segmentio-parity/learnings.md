@@ -55,3 +55,13 @@ Conventions, patterns, and successful approaches discovered during work on this 
 - Tag keys must match `^[a-zA-Z_][a-zA-Z0-9_]*(\.…)*$`, so a `-` in a key (e.g. `http.request.header.content-type`) makes `validTagKey` reject the whole metric silently; use `content_type`.
 - `NewHandler*`/`NewTransport*` gained variadic `...Option` (`WithContentAttributes`); source compatible, but not for code that stores them in a func-typed variable.
 - Request/response counts deliberately not added: duration histogram count already is the request count.
+
+## Runtime metrics gap closure (procstats)
+- `MemStats.Lookups` is declared but never written by the Go runtime (only the heap dumper reads it) and has no `runtime/metrics` source, so it is documented as not provided instead of emitted as a constant zero.
+- Go defines `MemStats.Alloc` as `HeapAlloc`; `memory.alloc` and `memory.heap.alloc` are the same value from the same sample. `HeapSys` = heap/objects + heap/unused + heap/free + heap/released.
+- Pre-existing, not changed: `memory.heap.inuse` and `memory.heap.idle` map to `/memory/classes/heap/inuse:bytes` and `/idle:bytes`, which do not exist in `runtime/metrics` (Go 1.27 lists only heap/free, objects, released, stacks, unused), so those two names are never emitted. `TestExistingNamesUnchanged` hides it because it only asserts names whose source exists. Fix would be a derived mapping (inuse = objects+unused, idle = free+released) in a separate change.
+- New CPU percent series use new names (`cpu.usage_user.percent`...) rather than a `type` attribute on `cpu.usage.percent`: a same-name typed series would double count when a backend sums the untyped one. They divide by the cgroup quota in cores when set, else GOMAXPROCS; `cpu.usage.percent` keeps GOMAXPROCS.
+- `runtimemetrics.Collector` is already the built-in struct, so the upstream `Collector` interface is `MetricCollector` here.
+- testify `Eventually` runs its condition on its own goroutine, so a goroutine-leak assertion inside it counts the helper; poll by hand.
+- BSD `sed -i` needs `-i ''`; a failing `sed` in a `&&` chain silently skipped the test step and a commit still ran after `;`. Chain with `&&` all the way.
+- Verified on Linux by cross-compiling test binaries (`GOOS=linux GOARCH=arm64 go test -c`) and running them in `debian:stable-slim` under docker with `--cpus 1.5`: real `/proc`, cgroup v2 `cpu.max` (150000 100000) and `CollectProcInfo` of a child process all work.
