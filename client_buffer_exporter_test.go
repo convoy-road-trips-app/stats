@@ -3,7 +3,6 @@ package stats
 import (
 	"bytes"
 	"context"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -46,5 +45,5 @@ func TestClientFlushWritesThroughBufferExporter(t *testing.T) {
 	require.NoError(t, client.Flush(context.Background()))
 
 	// Then: Flush returned with the data already in the destination
-	require.True(t, strings.Contains(dst.String(), "buffered.hits"), "destination: %q", dst.String())
+	require.Contains(t, dst.String(), "buffered.hits")
 }
