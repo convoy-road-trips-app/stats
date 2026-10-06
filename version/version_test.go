@@ -27,8 +27,9 @@ func TestDevelGoVersionMatchesRuntime(t *testing.T) {
 }
 
 func TestVersionIsStable(t *testing.T) {
-	require.NotEmpty(t, Version())
-	require.Equal(t, Version(), Version())
+	first := Version()
+	require.NotEmpty(t, first)
+	require.Equal(t, first, moduleVsn)
 }
 
 func TestModuleVersion(t *testing.T) {
