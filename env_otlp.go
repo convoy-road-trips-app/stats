@@ -18,6 +18,8 @@ const (
 	envServiceName      = "OTEL_SERVICE_NAME"
 	envExportInterval   = "OTEL_METRIC_EXPORT_INTERVAL"
 	envTemporality      = "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE"
+	envHistogramAggr    = "OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION"
+	envExportTimeout    = "OTEL_METRIC_EXPORT_TIMEOUT"
 	envGenericEndpoint  = "OTEL_EXPORTER_OTLP_ENDPOINT"
 	envMetricsPrefix    = "OTEL_EXPORTER_OTLP_METRICS_"
 	envGenericPrefix    = "OTEL_EXPORTER_OTLP_"
@@ -58,7 +60,8 @@ func resolveOTLPEnv(cfg *Config) error {
 	// Protocol goes first: the generic endpoint depends on it.
 	for _, resolve := range []func(*Config) error{
 		resolveProtocol, resolveEndpoint, resolveInsecure, resolveHeaders,
-		resolveTimeout, resolveCompression, resolveTLSFiles, resolveTemporality, resolveExportInterval,
+		resolveTimeout, resolveCompression, resolveTLSFiles, resolveTemporality, resolveHistogramAggregation,
+		resolveExportInterval,
 	} {
 		if err := resolve(cfg); err != nil {
 			return err
@@ -189,9 +192,15 @@ func resolveTimeout(cfg *Config) error {
 	if cfg.OTLPOverrides.Timeout != nil {
 		return nil
 	}
+	// OTEL_METRIC_EXPORT_TIMEOUT, the reader's export timeout, is the same
+	// per-export deadline here and ranks below the exporter's own variables.
 	setting, ok := signalEnv("TIMEOUT")
 	if !ok {
-		return nil
+		value := envValue(envExportTimeout)
+		if value == "" {
+			return nil
+		}
+		setting = envSetting{envExportTimeout, value}
 	}
 	timeout, err := parseMilliseconds(setting.value)
 	if err != nil {
@@ -253,10 +262,34 @@ func resolveTemporality(cfg *Config) error {
 	switch strings.ToLower(value) {
 	case "cumulative":
 		cfg.OTLP.Temporality = models.Cumulative
-	case "delta":
+	case "delta", "lowmemory":
+		// lowmemory is delta for counters and histograms and cumulative for
+		// up-down counters and observable instruments. Every sum this library
+		// exports is a monotonic counter, up-down counters are exported as
+		// gauges (which have no temporality), so lowmemory equals delta.
 		cfg.OTLP.Temporality = models.Delta
 	default:
-		return setting.errorf("must be cumulative or delta")
+		return setting.errorf("must be cumulative, delta or lowmemory")
+	}
+	return nil
+}
+
+// resolveHistogramAggregation maps
+// OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION onto
+// WithExponentialHistogram's defaults. Only the metrics-specific variable
+// exists. Histogram settings stated by an option win: an exponential
+// histogram, or global explicit buckets that exponential export would drop.
+func resolveHistogramAggregation(cfg *Config) error {
+	value := envValue(envHistogramAggr)
+	if value == "" || cfg.OTLP.ExponentialHistogram != nil || cfg.OTLP.HistogramBuckets != nil {
+		return nil
+	}
+	switch strings.ToLower(value) {
+	case "explicit_bucket_histogram":
+	case "base2_exponential_bucket_histogram":
+		cfg.OTLP.ExponentialHistogram = &models.OTLPExponentialHistogram{}
+	default:
+		return envSetting{envHistogramAggr, value}.errorf("must be explicit_bucket_histogram or base2_exponential_bucket_histogram")
 	}
 	return nil
 }

@@ -224,7 +224,7 @@ func TestInvalidEnvNamesTheVariable(t *testing.T) {
 		{"OTEL_EXPORTER_OTLP_COMPRESSION", "zstd"},
 		{"OTEL_EXPORTER_OTLP_METRICS_HEADERS", "novalue"},
 		{"OTEL_EXPORTER_OTLP_HEADERS", "k=%zz"},
-		{"OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE", "lowmemory"},
+		{"OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE", "sometimes"},
 		{"OTEL_METRIC_EXPORT_INTERVAL", "0"},
 	}
 	for _, tt := range tests {
