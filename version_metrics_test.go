@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/convoy-road-trips-app/stats/version"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -76,7 +77,7 @@ func TestVersionMetricsOnce(t *testing.T) {
 	require.Len(t, sv, 1)
 	require.Equal(t, MetricTypeGauge, sv[0].Type)
 	require.InDelta(t, 1, sv[0].Value, 0)
-	require.Equal(t, map[string]string{"service": "svc", "environment": "prod", "stats_version": statsVersion()}, attrMap(sv[0]))
+	require.Equal(t, map[string]string{"service": "svc", "environment": "prod", "stats_version": version.Version()}, attrMap(sv[0]))
 
 	if strings.HasPrefix(runtime.Version(), "devel") {
 		require.Empty(t, capture.named("go_version"))

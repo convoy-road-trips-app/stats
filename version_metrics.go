@@ -4,11 +4,11 @@ import (
 	"context"
 	"os"
 	"runtime"
-	"runtime/debug"
 	"strings"
-	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/convoy-road-trips-app/stats/version"
 )
 
 const (
@@ -16,9 +16,6 @@ const (
 	// and go_version) when set to true, TRUE, yes, 1 or on. WithVersionReporting
 	// takes precedence over it.
 	envDisableVersionReporting = "STATS_DISABLE_GO_VERSION_REPORTING"
-
-	// statsModulePath is the module whose version stats_version reports.
-	statsModulePath = "github.com/convoy-road-trips-app/stats"
 
 	statsVersionMetric = "stats_version"
 	goVersionMetric    = "go_version"
@@ -62,9 +59,9 @@ func (core *clientCore) reportVersionsOnce() {
 			attribute.String("service", core.cfg.ServiceName),
 			attribute.String("environment", core.cfg.Environment),
 		}
-		core.recordVersionGauge(statsVersionMetric, statsVersion(), service)
-		if goVer := runtime.Version(); !strings.HasPrefix(goVer, "devel") {
-			core.recordVersionGauge(goVersionMetric, goVer, service)
+		core.recordVersionGauge(statsVersionMetric, version.Version(), service)
+		if !version.DevelGoVersion() {
+			core.recordVersionGauge(goVersionMetric, runtime.Version(), service)
 		}
 	})
 }
@@ -81,35 +78,4 @@ func (core *clientCore) recordVersionGauge(name, version string, service []attri
 	if err := core.pipeline.Record(context.Background(), m); err != nil {
 		ReleaseMetric(m)
 	}
-}
-
-var (
-	statsVersionOnce  sync.Once
-	statsVersionValue string
-)
-
-// statsVersion returns the module version of this library from the build info,
-// or "(devel)" when it is unknown, as for a local build of the module itself.
-func statsVersion() string {
-	statsVersionOnce.Do(func() {
-		statsVersionValue = "(devel)"
-		info, ok := debug.ReadBuildInfo()
-		if !ok {
-			return
-		}
-		if info.Main.Path == statsModulePath && info.Main.Version != "" {
-			statsVersionValue = info.Main.Version
-		}
-		for _, dep := range info.Deps {
-			if dep.Path == statsModulePath {
-				if dep.Replace != nil && dep.Replace.Version != "" {
-					statsVersionValue = dep.Replace.Version
-				} else if dep.Version != "" {
-					statsVersionValue = dep.Version
-				}
-				return
-			}
-		}
-	})
-	return statsVersionValue
 }
