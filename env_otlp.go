@@ -58,7 +58,7 @@ func resolveOTLPEnv(cfg *Config) error {
 	// Protocol goes first: the generic endpoint depends on it.
 	for _, resolve := range []func(*Config) error{
 		resolveProtocol, resolveEndpoint, resolveInsecure, resolveHeaders,
-		resolveTimeout, resolveCompression, resolveTemporality, resolveExportInterval,
+		resolveTimeout, resolveCompression, resolveTLSFiles, resolveTemporality, resolveExportInterval,
 	} {
 		if err := resolve(cfg); err != nil {
 			return err
@@ -216,6 +216,29 @@ func resolveCompression(cfg *Config) error {
 	default:
 		return setting.errorf("must be gzip or none")
 	}
+}
+
+// resolveTLSFiles reads the certificate variables into the config, each field
+// on its own: OTEL_EXPORTER_OTLP_[METRICS_]CERTIFICATE, CLIENT_CERTIFICATE and
+// CLIENT_KEY. The exporter reads the files; the SDK never sees the variables.
+func resolveTLSFiles(cfg *Config) error {
+	for _, f := range []struct {
+		suffix   string
+		override *string
+		target   *string
+	}{
+		{"CERTIFICATE", cfg.OTLPOverrides.CAFile, &cfg.OTLP.CAFile},
+		{"CLIENT_CERTIFICATE", cfg.OTLPOverrides.ClientCertFile, &cfg.OTLP.ClientCertFile},
+		{"CLIENT_KEY", cfg.OTLPOverrides.ClientKeyFile, &cfg.OTLP.ClientKeyFile},
+	} {
+		if f.override != nil {
+			continue
+		}
+		if setting, ok := signalEnv(f.suffix); ok {
+			*f.target = setting.value
+		}
+	}
+	return nil
 }
 
 func resolveTemporality(cfg *Config) error {

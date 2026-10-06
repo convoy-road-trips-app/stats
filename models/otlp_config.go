@@ -1,6 +1,7 @@
 package models
 
 import (
+	"crypto/tls"
 	"fmt"
 	"math"
 	"time"
@@ -54,6 +55,20 @@ type OTLPConfig struct {
 	// those explicit buckets. HistogramBuckets then applies to no metric. Nil
 	// exports every histogram with explicit buckets.
 	ExponentialHistogram *OTLPExponentialHistogram
+	// TLSConfig is the base TLS configuration of a secure connection, HTTP and
+	// gRPC alike; it is cloned. CAFile, ClientCertFile and ClientKeyFile are
+	// applied on top of it: CAFile replaces RootCAs and the client key pair is
+	// appended to Certificates. A zero MinVersion becomes TLS 1.2. Nothing here
+	// relaxes verification unless the caller sets InsecureSkipVerify in this
+	// struct. Ignored when Insecure is true (or the endpoint URL scheme is http).
+	TLSConfig *tls.Config
+	// CAFile is a PEM file of the certificates that sign the server certificate.
+	// It replaces the system roots. Ignored when the connection is insecure.
+	CAFile string
+	// ClientCertFile and ClientKeyFile are PEM files holding the client key
+	// pair for mutual TLS; either both or neither must be set.
+	ClientCertFile string
+	ClientKeyFile  string
 }
 
 // Defaults of OTLPExponentialHistogram, the OTel SDK defaults for base-2
@@ -123,6 +138,10 @@ type OTLPOverrides struct {
 	Compression *string
 	Protocol    *OTLPProtocol
 	Temporality *Temporality
+
+	CAFile         *string
+	ClientCertFile *string
+	ClientKeyFile  *string
 }
 
 // OTLPRetry is an exponential-backoff policy for retryable OTLP export
@@ -201,6 +220,9 @@ func (c *OTLPConfig) Validate() error {
 	}
 	if !c.Enabled {
 		return nil
+	}
+	if (c.ClientCertFile == "") != (c.ClientKeyFile == "") {
+		return fmt.Errorf("client certificate and client key must be set together")
 	}
 
 	if c.Endpoint == "" {

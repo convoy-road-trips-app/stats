@@ -21,9 +21,10 @@ import (
 // timeout and compression of the SDK exporters are always those resolved by
 // this library. The vendored constructors read OTEL_EXPORTER_OTLP_* variables
 // before our options run, so every setting is passed explicitly below and any
-// TLS derived from the environment is cleared. OTEL_EXPORTER_OTLP_CERTIFICATE,
-// the CLIENT_* variables and the histogram aggregation variable are
-// unsupported: setting them has no effect.
+// TLS derived from the environment is cleared. The certificate variables
+// (OTEL_EXPORTER_OTLP_CERTIFICATE, CLIENT_CERTIFICATE, CLIENT_KEY) are resolved
+// by the root package into OTLPConfig fields and read by buildTLSConfig, so the
+// SDK never reads them itself.
 
 const (
 	defaultExportTimeout = 10 * time.Second
@@ -95,6 +96,12 @@ func newGRPCExporter(config *models.OTLPConfig) (*otlpmetricgrpc.Exporter, error
 	if err != nil {
 		return nil, err
 	}
+	var tlsConfig *tls.Config // an insecure endpoint ignores, and never reads, TLS settings
+	if !endpoint.insecure {
+		if tlsConfig, err = buildTLSConfig(config); err != nil {
+			return nil, err
+		}
+	}
 	opts := []otlpmetricgrpc.Option{
 		otlpmetricgrpc.WithEndpointURL(endpoint.url("")),
 		otlpmetricgrpc.WithHeaders(headersOrEmpty(config.Headers)),
@@ -108,7 +115,7 @@ func newGRPCExporter(config *models.OTLPConfig) (*otlpmetricgrpc.Exporter, error
 		// (oconf/options.go:150-154), so clear them first.
 		opts = append(opts, otlpmetricgrpc.WithTLSCredentials(nil), otlpmetricgrpc.WithInsecure())
 	} else {
-		opts = append(opts, otlpmetricgrpc.WithTLSCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})))
+		opts = append(opts, otlpmetricgrpc.WithTLSCredentials(credentials.NewTLS(tlsConfig)))
 	}
 	if r := config.Retry; r != nil {
 		opts = append(opts, otlpmetricgrpc.WithRetry(otlpmetricgrpc.RetryConfig{
@@ -148,6 +155,12 @@ func newHTTPExporter(config *models.OTLPConfig) (*otlpmetrichttp.Exporter, error
 	if err != nil {
 		return nil, err
 	}
+	var tlsConfig *tls.Config // an insecure endpoint ignores, and never reads, TLS settings
+	if !endpoint.insecure {
+		if tlsConfig, err = buildTLSConfig(config); err != nil {
+			return nil, err
+		}
+	}
 	path := endpoint.path
 	if path == "" {
 		path = defaultMetricsPath
@@ -168,7 +181,7 @@ func newHTTPExporter(config *models.OTLPConfig) (*otlpmetrichttp.Exporter, error
 		// (otlpmetrichttp/client.go:71-72). tls.Config.Clone(nil) is nil.
 		opts = append(opts, otlpmetrichttp.WithTLSClientConfig(nil))
 	} else {
-		opts = append(opts, otlpmetrichttp.WithTLSClientConfig(&tls.Config{MinVersion: tls.VersionTLS12}))
+		opts = append(opts, otlpmetrichttp.WithTLSClientConfig(tlsConfig))
 	}
 	if r := config.Retry; r != nil {
 		opts = append(opts, otlpmetrichttp.WithRetry(otlpmetrichttp.RetryConfig{

@@ -2,6 +2,7 @@ package stats
 
 import (
 	"cmp"
+	"crypto/tls"
 	"maps"
 	"slices"
 	"time"
@@ -230,6 +231,7 @@ func WithOTLP(cfg *OTLPConfig) Option {
 		if cfg.ExponentialHistogram != nil {
 			merged.ExponentialHistogram = ref(*cfg.ExponentialHistogram)
 		}
+		merged.TLSConfig = cfg.TLSConfig.Clone()
 		if c.OTLP != nil {
 			if merged.HistogramBuckets == nil {
 				merged.HistogramBuckets = c.OTLP.HistogramBuckets
@@ -240,6 +242,7 @@ func WithOTLP(cfg *OTLPConfig) Option {
 			merged.ServiceName = cmp.Or(merged.ServiceName, c.OTLP.ServiceName)
 			merged.DeploymentEnvironment = cmp.Or(merged.DeploymentEnvironment, c.OTLP.DeploymentEnvironment)
 			merged.Retry = cmp.Or(merged.Retry, c.OTLP.Retry)
+			merged.TLSConfig = cmp.Or(merged.TLSConfig, c.OTLP.TLSConfig)
 			merged.ExponentialHistogram = cmp.Or(merged.ExponentialHistogram, c.OTLP.ExponentialHistogram)
 		}
 		merged.Enabled = true
@@ -254,6 +257,10 @@ func WithOTLP(cfg *OTLPConfig) Option {
 			Compression: ref(merged.Compression),
 			Protocol:    ref(merged.Protocol),
 			Temporality: ref(merged.Temporality),
+
+			CAFile:         ref(merged.CAFile),
+			ClientCertFile: ref(merged.ClientCertFile),
+			ClientKeyFile:  ref(merged.ClientKeyFile),
 		}
 	}
 }
@@ -303,6 +310,45 @@ func WithExponentialHistogram(maxSize, maxScale int32) Option {
 			c.OTLP = &OTLPConfig{}
 		}
 		c.OTLP.ExponentialHistogram = &OTLPExponentialHistogram{MaxSize: maxSize, MaxScale: maxScale}
+	}
+}
+
+// WithOTLPTLSConfig sets the base TLS configuration of a secure OTLP
+// connection, HTTP and gRPC alike (see OTLPConfig.TLSConfig). cfg is cloned.
+// It is ignored for an insecure connection.
+func WithOTLPTLSConfig(cfg *tls.Config) Option {
+	return func(c *Config) {
+		if c.OTLP == nil {
+			c.OTLP = &OTLPConfig{}
+		}
+		c.OTLP.TLSConfig = cfg.Clone()
+	}
+}
+
+// WithOTLPCertificates sets the PEM files of a secure OTLP connection: the CA
+// certificates that sign the server certificate (replacing the system roots)
+// and the client key pair for mutual TLS, which must be set together. Each
+// argument stated here beats its OTEL_EXPORTER_OTLP_CERTIFICATE,
+// CLIENT_CERTIFICATE and CLIENT_KEY variable; an empty argument leaves that
+// variable in effect. The files are read when the client is created.
+func WithOTLPCertificates(caFile, clientCertFile, clientKeyFile string) Option {
+	return func(c *Config) {
+		if c.OTLP == nil {
+			c.OTLP = &OTLPConfig{}
+		}
+		for _, f := range []struct {
+			value    string
+			override **string
+			target   *string
+		}{
+			{caFile, &c.OTLPOverrides.CAFile, &c.OTLP.CAFile},
+			{clientCertFile, &c.OTLPOverrides.ClientCertFile, &c.OTLP.ClientCertFile},
+			{clientKeyFile, &c.OTLPOverrides.ClientKeyFile, &c.OTLP.ClientKeyFile},
+		} {
+			if f.value != "" {
+				*f.target, *f.override = f.value, ref(f.value)
+			}
+		}
 	}
 }
 
