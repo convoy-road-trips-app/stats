@@ -331,3 +331,27 @@ func TestWithCollectionInterval_rejects_non_positive_interval(t *testing.T) {
 	_, err := NewMeterProvider(WithCollectionInterval(0))
 	require.ErrorIs(t, err, ErrCollectionInterval)
 }
+
+func TestObservable_nilCreateCallbackDoesNotPoisonCache(t *testing.T) {
+	receiver := newMetricsReceiver(t)
+	provider := receiver.provider(t)
+	meter := provider.Meter("poison")
+
+	_, err := meter.Int64ObservableGauge("depth", metric.WithInt64Callback(nil))
+	require.ErrorIs(t, err, ErrNilCallback)
+
+	var calls atomic.Int64
+	_, err = meter.Int64ObservableGauge("depth", metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+		calls.Add(1)
+		o.Observe(9, primary)
+		return nil
+	}))
+	require.NoError(t, err, "a valid recreate after a nil-callback failure must not hit a poisoned cache")
+
+	require.NoError(t, provider.ForceFlush(context.Background()))
+	require.Equal(t, int64(1), calls.Load(), "callback must be registered after the successful recreate")
+	got, ok := receiver.take("depth{pool=primary}")
+	require.True(t, ok)
+	require.Equal(t, "gauge", got.kind)
+	require.Equal(t, float64(9), got.value)
+}
