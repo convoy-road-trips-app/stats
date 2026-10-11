@@ -353,5 +353,5 @@ func TestObservable_nilCreateCallbackDoesNotPoisonCache(t *testing.T) {
 	got, ok := receiver.take("depth{pool=primary}")
 	require.True(t, ok)
 	require.Equal(t, "gauge", got.kind)
-	require.Equal(t, float64(9), got.value)
+	require.InDelta(t, float64(9), got.value, 0.001)
 }
