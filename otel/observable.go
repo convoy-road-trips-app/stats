@@ -2,7 +2,6 @@ package otel
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 
@@ -91,7 +90,18 @@ type observableSpec struct {
 // observableFor returns the instrument stored under spec.key or creates it with
 // wrap and registers its callbacks. As in the OTel SDK, only the callbacks
 // passed when the instrument is created are registered.
+//
+// Nil callbacks are rejected before the instrument is cached, so a failed
+// first create cannot poison Meter.instruments and make a later create with a
+// valid callback return a silent, unregistered instrument (see #4).
 func observableFor[T observableInstrument](m *Meter, spec *observableSpec, wrap func(*observable) T) (T, error) {
+	var zero T
+	for _, callback := range spec.callbacks {
+		if callback == nil {
+			return zero, fmt.Errorf("%w: instrument %q", ErrNilCallback, spec.name)
+		}
+	}
+
 	m.mu.Lock()
 	if existing, ok := m.instruments[spec.key]; ok {
 		m.mu.Unlock()
@@ -104,18 +114,13 @@ func observableFor[T observableInstrument](m *Meter, spec *observableSpec, wrap 
 	m.instruments[spec.key] = inst
 	m.mu.Unlock()
 
-	var err error
 	for _, callback := range spec.callbacks {
-		if callback == nil {
-			err = errors.Join(err, fmt.Errorf("%w: instrument %q", ErrNilCallback, spec.name))
-			continue
-		}
 		m.provider.observers.register(func(ctx context.Context) error {
 			scope := &observeScope{ctx: ctx}
 			return scope.finish(callback(ctx, scope, inst.base()))
 		})
 	}
-	return inst, err
+	return inst, nil
 }
 
 func int64Callbacks(callbacks []metric.Int64Callback) []instrumentCallback {
