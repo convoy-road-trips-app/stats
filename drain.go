@@ -46,6 +46,8 @@ func (f *exportFailure) since(gen uint64) error {
 // exported, or with ctx's error once ctx is done. Export failures are returned,
 // including failures of background exports that were still in progress when
 // Flush was called, since those carried observations accepted before the call.
+// If Shutdown interrupts dispatch before all workers receive their requests,
+// Flush returns ErrClientClosed.
 func (p *Pipeline) Flush(ctx context.Context) error {
 	select {
 	case <-p.shutdownCh:
@@ -91,6 +93,10 @@ func (p *Pipeline) Shutdown(ctx context.Context) error {
 // every slot filled before the call is claimed by then, and a worker that
 // resumes early can only pop observations accepted after the call.
 func (p *Pipeline) broadcast(ctx context.Context, stop bool) error {
+	var shutdown <-chan struct{}
+	if !stop {
+		shutdown = p.shutdownCh
+	}
 	done := make(chan error, len(p.flushes))
 	request := flushRequest{ctx: ctx, gen: p.flushGen.Add(1), stop: stop, done: done}
 	for _, flushes := range p.flushes {
@@ -98,6 +104,10 @@ func (p *Pipeline) broadcast(ctx context.Context, stop bool) error {
 		case flushes <- request:
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-shutdown:
+			// Shutdown may already be stopping this worker. Requests that
+			// arrived before shutdown can still acknowledge into done.
+			return ErrClientClosed
 		case <-p.ctx.Done():
 			return ErrClientClosed
 		}

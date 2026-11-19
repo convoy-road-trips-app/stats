@@ -172,7 +172,7 @@ sequenceDiagram
 
 Use a context with a deadline for both calls: if it ends first, the call returns the context error and observations not yet exported are dropped.
 
-Do not call `Flush` concurrently with `Shutdown`. A `Flush` racing a `Shutdown` may wait on a worker that `Shutdown` has already stopped. Our reading is that it is released with `ErrClientClosed` once `Shutdown`'s broadcast ends, possibly after flushing only some workers, but no committed test proves it and an unbounded wait is not ruled out, so always pass a context with a deadline. This is an accepted, documented limitation, tracked in [issue #4](https://github.com/convoy-road-trips-app/stats/issues/4) and in the [limitations](otel_compliance.md#limitations). Call `Flush` while the client is in use, and `Shutdown` once, after your other goroutines have stopped recording.
+When `Shutdown` closes intake, it also wakes any `Flush` blocked sending its requests. That flush returns `ErrClientClosed` and some workers may already have processed its requests. A flush that has already reached every worker can still collect their acknowledgements, subject to its own context.
 
 ---
 

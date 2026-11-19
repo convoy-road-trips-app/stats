@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -114,6 +115,64 @@ func TestPipeline_Shutdown_reports_failed_in_flight_export_of_pre_call_observati
 	// Then
 	require.InDelta(t, float64(3), exporter.counter.count("pre_call_total"), 0.001)
 	require.ErrorIs(t, err, exporter.inFlightErr)
+}
+
+func TestPipeline_Flush_stops_dispatching_when_Shutdown_begins(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p := newUnstartedPipeline(t, DefaultConfig())
+		first, second := make(chan flushRequest), make(chan flushRequest)
+		p.flushes = []chan flushRequest{first, second}
+
+		flushed := make(chan error, 1)
+		go func() { flushed <- p.Flush(context.Background()) }()
+		initial := <-first
+		initial.done <- nil
+		synctest.Wait() // Flush is trying to reach the still-busy second worker.
+
+		stopped := make(chan error, 1)
+		go func() { stopped <- p.Shutdown(context.Background()) }()
+		stopFirst := <-first
+		stopFirst.done <- nil
+		synctest.Wait() // Shutdown also cannot reach the second worker yet.
+
+		select {
+		case err := <-flushed:
+			require.ErrorIs(t, err, ErrClientClosed)
+		default:
+			t.Error("Flush is still waiting for the shutdown drain")
+		}
+
+		// Let the second worker accept requests until it receives its stop.
+		for request := range second {
+			request.done <- nil
+			if request.stop {
+				break
+			}
+		}
+		require.NoError(t, <-stopped)
+	})
+}
+
+func TestPipeline_Flush_finishes_when_all_requests_precede_Shutdown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p := newUnstartedPipeline(t, DefaultConfig())
+		worker := make(chan flushRequest)
+		p.flushes = []chan flushRequest{worker}
+
+		flushed := make(chan error, 1)
+		go func() { flushed <- p.Flush(context.Background()) }()
+		flush := <-worker
+
+		stopped := make(chan error, 1)
+		go func() { stopped <- p.Shutdown(context.Background()) }()
+		<-p.shutdownCh
+		flush.done <- nil
+		require.NoError(t, <-flushed)
+
+		stop := <-worker
+		stop.done <- nil
+		require.NoError(t, <-stopped)
+	})
 }
 
 func TestPipeline_Flush_does_not_report_background_failures_that_ended_before_the_call(t *testing.T) {
