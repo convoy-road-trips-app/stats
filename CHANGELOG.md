@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A `Flush` waiting to dispatch a request to a worker can return `ErrClientClosed` as soon as `Shutdown` starts. It no longer waits for the shutdown drain to finish. A flush that already dispatched every request can still collect its results. See [issue #4](https://github.com/convoy-road-trips-app/stats/issues/4).
+
 ## [1.4.0] - 2026-10-07
 
 segmentio/stats parity release. It ports the features of segmentio/stats v5.11.0 that are listed in the [migration tables](README.md#migrating-from-segmentiostats) onto the existing pipeline, with OpenTelemetry semantics. It is not a drop-in replacement: the "Not ported" rows in those tables list what is left out, including `influxdb`, `veneur`, the deprecated custom `otlp.Handler`, `grafana`, `util/objconv`, `cmd/dogstatsd` and parts of `httpstats`, `netstats`, `procstats` and the OTLP configuration. The Go API only gains symbols: `Recorder` and `Timing` are unchanged.
